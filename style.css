@@ -342,3 +342,31 @@ button.secondary:hover {
   color: rgba(234, 255, 240, 0.3);
   pointer-events: none;
 }
+
+/* Game-over overlay. */
+#gameOverOverlay {
+  background: radial-gradient(circle at center, rgba(40, 0, 0, 0.9), rgba(0, 0, 0, 0.98));
+}
+
+.dead-title {
+  color: #ff2a2a !important;
+  text-shadow: 0 0 22px rgba(255, 30, 30, 0.7), 0 0 60px rgba(255, 0, 0, 0.35) !important;
+  animation: deadflicker 2.4s infinite;
+}
+
+@keyframes deadflicker {
+  0%, 100% { opacity: 1; }
+  92% { opacity: 1; }
+  94% { opacity: 0.35; }
+  96% { opacity: 1; }
+  97% { opacity: 0.5; }
+}
+
+.dead-stat {
+  margin: 0 0 22px;
+  color: rgba(255, 220, 220, 0.85);
+}
+
+.dead-stat strong {
+  color: #ff5a5a;
+}

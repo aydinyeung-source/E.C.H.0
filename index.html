@@ -70,6 +70,16 @@
       </div>
     </div>
 
+    <!-- Game-over overlay, shown when an entity catches the player. -->
+    <div class="overlay hidden" id="gameOverOverlay">
+      <div class="panel">
+        <h1 class="dead-title">TAKEN</h1>
+        <p class="tagline">Something found you in the dark.</p>
+        <p class="dead-stat">You explored <strong id="gameOverDistance">0m</strong></p>
+        <button id="tryAgainButton" type="button">Try Again</button>
+      </div>
+    </div>
+
     <div class="seed-tag" id="seedTag"></div>
     <div class="version-tag" id="versionTag"></div>
 

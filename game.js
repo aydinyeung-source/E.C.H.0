@@ -9,10 +9,11 @@
 import { World, SPAWN, setWorldSeed } from "./world.js";
 import { Player, BASE_SENSITIVITY } from "./player.js";
 import { SonarSystem } from "./sonar.js";
+import { EntitySystem } from "./entities.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.3.0";
+const VERSION = "v2.4.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -24,6 +25,9 @@ const sensValue = document.getElementById("sensValue");
 const seedTag = document.getElementById("seedTag");
 const distanceTag = document.getElementById("distanceTag");
 const versionTag = document.getElementById("versionTag");
+const gameOverOverlay = document.getElementById("gameOverOverlay");
+const gameOverDistance = document.getElementById("gameOverDistance");
+const tryAgainButton = document.getElementById("tryAgainButton");
 
 // --- Three.js core ----------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -45,6 +49,9 @@ const camera = new THREE.PerspectiveCamera(
 const world = new World(scene);
 const player = new Player(camera, canvas, SPAWN);
 const sonar = new SonarSystem(scene);
+const entities = new EntitySystem(scene);
+
+let dead = false; // true once an entity has caught the player
 
 // Prime a random world behind the overlay so the scene isn't empty on load.
 setWorldSeed(parseSeed(""));
@@ -92,12 +99,23 @@ function startRun(rawSeedText, label, isDaily) {
   run.isDaily = isDaily;
   run.date = todayUTC();
   run.maxDistance = 0;
+  dead = false;
+  gameOverOverlay.classList.add("hidden");
   setWorldSeed(run.seed);
   player.reset(SPAWN);
   world.reset();
   world.update(player.pos); // rebuild chunks around spawn from the new seed
+  entities.reset();
   seedTag.textContent = (label ? label + " · " : "") + "SEED " + run.seed;
   canvas.requestPointerLock();
+}
+
+// An entity reached the player: end the run. Releasing the pointer lock drives
+// the game-over overlay (see the pointerlockchange handler below).
+function die() {
+  if (dead) return;
+  dead = true;
+  document.exitPointerLock();
 }
 
 startButton.addEventListener("click", () => startRun(seedInput.value, null, false));
@@ -130,16 +148,29 @@ sensSlider.addEventListener("input", () => {
 // --- Pointer lock + sonar input ---------------------------------------------
 document.addEventListener("pointerlockchange", () => {
   const locked = document.pointerLockElement === canvas;
-  startOverlay.classList.toggle("hidden", locked);
   if (locked) {
+    startOverlay.classList.add("hidden");
+    gameOverOverlay.classList.add("hidden");
     sonar.pulse(player.pos); // an opening ping to get your bearings
-  } else {
-    // Pausing ends the run: submit the daily distance and refresh the board.
-    if (run.isDaily && run.maxDistance > 0) {
-      submitDistance({ seed: run.seed, date: run.date, distance: run.maxDistance })
-        .then(() => Menu.refreshLeaderboard(run.date));
-    }
+    return;
   }
+  // Unlocked (paused or died): submit the daily distance and refresh the board.
+  if (run.isDaily && run.maxDistance > 0) {
+    submitDistance({ seed: run.seed, date: run.date, distance: run.maxDistance })
+      .then(() => Menu.refreshLeaderboard(run.date));
+  }
+  if (dead) {
+    gameOverDistance.textContent = Math.round(run.maxDistance) + "m";
+    gameOverOverlay.classList.remove("hidden");
+  } else {
+    startOverlay.classList.remove("hidden");
+  }
+});
+
+tryAgainButton.addEventListener("click", () => {
+  dead = false;
+  gameOverOverlay.classList.add("hidden");
+  startOverlay.classList.remove("hidden");
 });
 
 // Only the LEFT button fires a sonar pulse. Right/other buttons just steer the
@@ -174,8 +205,14 @@ function loop(now) {
 
   player.update(dt, world);
   world.update(player.pos);
+  world.animate(now * 0.001); // flickering lights
   sonar.update(dt);
   updateDistance();
+
+  // Entities only hunt while actively playing (locked and alive).
+  if (document.pointerLockElement === canvas && !dead) {
+    if (entities.update(dt, player.pos, run.maxDistance)) die();
+  }
 
   renderer.render(scene, camera);
   requestAnimationFrame(loop);

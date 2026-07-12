@@ -50,6 +50,90 @@ export function setWorldSeed(seed) {
   SEED = seed >>> 0;
 }
 
+// --- Procedural textures ----------------------------------------------------
+// Drawn once on a <canvas> so there are no external image assets. Walls come in
+// grimy variants (some with bloody writing) for an uncanny, detailed look; the
+// sonar reveals them out of the dark.
+function makeWallTexture(kind, variant) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+
+  g.fillStyle = "#c9b83a"; // base wallpaper yellow
+  g.fillRect(0, 0, 256, 256);
+
+  // Faint vertical wallpaper stripes.
+  for (let x = 0; x < 256; x += 16) {
+    g.fillStyle = (x / 16) % 2 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)";
+    g.fillRect(x, 0, 8, 256);
+  }
+  // Grime speckle.
+  for (let i = 0; i < 2200; i++) {
+    g.fillStyle = `rgba(40,30,0,${Math.random() * 0.08})`;
+    const s = Math.random() * 3;
+    g.fillRect(Math.random() * 256, Math.random() * 256, s, s);
+  }
+  // Dark water stains (more on the "stain" variant).
+  const stains = kind === "stain" ? 16 : 6;
+  for (let i = 0; i < stains; i++) {
+    const rx = Math.random() * 256, ry = Math.random() * 256, rr = 10 + Math.random() * 42;
+    const grd = g.createRadialGradient(rx, ry, 0, rx, ry, rr);
+    grd.addColorStop(0, "rgba(28,20,0,0.38)");
+    grd.addColorStop(1, "rgba(28,20,0,0)");
+    g.fillStyle = grd;
+    g.fillRect(rx - rr, ry - rr, rr * 2, rr * 2);
+  }
+  // Wainscot line.
+  g.fillStyle = "rgba(0,0,0,0.22)";
+  g.fillRect(0, 200, 256, 5);
+
+  // Bloody scrawl.
+  if (kind === "blood") {
+    const words = ["GET OUT", "NO EXIT", "TURN BACK", "IT SEES YOU"];
+    const word = words[variant % words.length];
+    g.save();
+    g.translate(22, 112);
+    g.rotate(-0.08);
+    g.fillStyle = "rgba(120,0,0,0.92)";
+    g.font = "bold 40px Georgia, serif";
+    g.fillText(word, 0, 0);
+    for (let i = 0; i < 28; i++) {
+      const dx = Math.random() * 210;
+      g.fillRect(dx, 6, 2, Math.random() * 48); // drips
+    }
+    g.restore();
+  }
+
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(2, 1);
+  return t;
+}
+
+function makeFloorTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "#a89a34";
+  g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 3000; i++) {
+    g.fillStyle = `rgba(0,0,0,${Math.random() * 0.06})`;
+    g.fillRect(Math.random() * 128, Math.random() * 128, 1, 1);
+  }
+  for (let i = 0; i < 6; i++) {
+    const rx = Math.random() * 128, ry = Math.random() * 128, rr = 8 + Math.random() * 22;
+    const grd = g.createRadialGradient(rx, ry, 0, rx, ry, rr);
+    grd.addColorStop(0, "rgba(20,15,0,0.3)");
+    grd.addColorStop(1, "rgba(20,15,0,0)");
+    g.fillStyle = grd;
+    g.fillRect(rx - rr, ry - rr, rr * 2, rr * 2);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(CHUNK_CELLS, CHUNK_CELLS);
+  return t;
+}
+
 // Deterministic 2D hash -> [0, 1). Folds in the world seed so the layout is
 // unique per seed, yet identical for everyone using that seed.
 function hash2(x, y, salt) {
@@ -78,8 +162,15 @@ export class World {
 
     // Shared geometry/materials keep each chunk lightweight to build and drop.
     this.boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    this.wallMat = new THREE.MeshLambertMaterial({ color: COL_WALL });
-    this.floorMat = new THREE.MeshLambertMaterial({ color: COL_FLOOR });
+    // Wall texture variants; a chunk deterministically picks one so the maze
+    // has visual variety (grime, heavy stains, and occasional bloody writing).
+    this.wallMats = [
+      new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("grime", 0) }),
+      new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("grime", 1) }),
+      new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("stain", 2) }),
+      new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("blood", 3) }),
+    ];
+    this.floorMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeFloorTexture() });
     this.ceilMat = new THREE.MeshLambertMaterial({ color: COL_CEIL });
     this.tileGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
     this.panelGeo = new THREE.PlaneGeometry(CELL * 0.62, CELL * 0.62);
@@ -92,8 +183,10 @@ export class World {
   _buildChunk(cx, cy) {
     const group = new THREE.Group();
     const bounds = [];
+    const flickers = []; // panel indices that strobe (see animate())
     const i0 = cx * CHUNK_CELLS;
     const j0 = cy * CHUNK_CELLS;
+    const wallMat = this.wallMats[Math.floor(hash2(cx, cy, 777) * this.wallMats.length)];
 
     // --- Walls: gather present edges, then pack into a single InstancedMesh ---
     const insts = [];
@@ -115,7 +208,7 @@ export class World {
     }
 
     if (insts.length) {
-      const wallMesh = new THREE.InstancedMesh(this.boxGeo, this.wallMat, insts.length);
+      const wallMesh = new THREE.InstancedMesh(this.boxGeo, wallMat, insts.length);
       // Instances are placed in world space, but an InstancedMesh frustum-culls
       // by its base geometry's bounding sphere at the mesh origin — which would
       // wrongly cull the whole chunk. Disable culling for these spread meshes.
@@ -158,8 +251,14 @@ export class World {
         _s.set(1, 1, 1);
         _m.compose(_p, _q, _s);
         panelMesh.setMatrixAt(k, _m);
-        const dead = hash2(i, j, 303) < 0.14; // uncanny burnt-out panels
-        panelMesh.setColorAt(k, _c.setHex(dead ? COL_DEAD : COL_LIGHT));
+        // ~14% burnt out (uncanny gaps); ~20% flicker/strobe; the rest steady.
+        const r = hash2(i, j, 303);
+        if (r < 0.14) {
+          panelMesh.setColorAt(k, _c.setHex(COL_DEAD));
+        } else {
+          panelMesh.setColorAt(k, _c.setHex(COL_LIGHT));
+          if (r < 0.34) flickers.push({ index: k, phase: hash2(i, j, 505) * Math.PI * 2 });
+        }
         k++;
       }
     }
@@ -168,7 +267,22 @@ export class World {
     group.add(panelMesh);
 
     this.scene.add(group);
-    return { group, bounds };
+    return { group, bounds, panelMesh, flickers };
+  }
+
+  // Animate the flickering fluorescent panels. Each flicker panel buzzes with a
+  // sine wave plus random dropouts, so the ceiling grid never sits still.
+  animate(time) {
+    for (const chunk of this.chunks.values()) {
+      if (!chunk.flickers || !chunk.flickers.length) continue;
+      for (const f of chunk.flickers) {
+        let v = 0.72 + 0.28 * Math.sin(time * 11 + f.phase);
+        if (Math.random() < 0.05) v = 0.12; // sudden blackout blink
+        _c.setHex(COL_LIGHT).multiplyScalar(v);
+        chunk.panelMesh.setColorAt(f.index, _c);
+      }
+      chunk.panelMesh.instanceColor.needsUpdate = true;
+    }
   }
 
   // Tear down every live chunk. Call this after changing the seed so the next

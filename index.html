@@ -2,65 +2,38 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#050816" />
-    <title>Echo Drift</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#000000" />
+    <title>E.C.H.0</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <section class="phone-frame">
-        <canvas id="gameCanvas" width="450" height="800" aria-label="Echo Drift game"></canvas>
+    <!-- Full-viewport WebGL surface. -->
+    <canvas id="scene"></canvas>
 
-        <div class="hud" aria-live="polite">
-          <div class="hud-pill">
-            <span>Score</span>
-            <strong id="scoreText">0</strong>
-          </div>
-          <div class="hud-pill">
-            <span>Best</span>
-            <strong id="bestText">0</strong>
-          </div>
-        </div>
+    <!-- Center reticle, only meaningful once pointer-locked. -->
+    <div class="crosshair" aria-hidden="true"></div>
 
-        <div class="overlay active" id="startOverlay">
-          <h1>Echo Drift</h1>
-          <p>Drag to steer. Tap or drag to pulse a sonar wave and reveal hidden hazards.</p>
-          <button id="startButton">Start Run</button>
-        </div>
+    <!-- Start / pause overlay. Shown until the pointer is locked. -->
+    <div class="overlay" id="startOverlay">
+      <div class="panel">
+        <h1>E.C.H.0</h1>
+        <p class="tagline">You are somewhere you shouldn't be.</p>
+        <ul class="controls">
+          <li><span>Move</span><strong>W&nbsp;A&nbsp;S&nbsp;D</strong></li>
+          <li><span>Look</span><strong>Mouse</strong></li>
+          <li><span>Sonar pulse</span><strong>Click</strong></li>
+          <li><span>Release cursor</span><strong>Esc</strong></li>
+        </ul>
+        <button id="startButton">Enter</button>
+        <p class="hint">The dark only answers when you call to it.</p>
+      </div>
+    </div>
 
-        <div class="overlay hidden" id="gameOverOverlay">
-          <h2>Run Ended</h2>
-          <p id="gameOverSummary">Your score was saved to the global leaderboard.</p>
+    <div class="version-tag" id="versionTag"></div>
 
-          <label class="nickname-field" for="nicknameInput">
-            Nickname
-            <input id="nicknameInput" maxlength="16" placeholder="Anonymous" />
-          </label>
-
-          <div class="overlay-actions">
-            <button id="submitScoreButton">Save Score</button>
-            <button id="restartButton" class="secondary">Play Again</button>
-          </div>
-
-          <div class="leaderboard-card">
-            <h3>Personal Daily Best</h3>
-            <p id="dailyBestText">0</p>
-          </div>
-
-          <div class="leaderboard-card">
-            <h3>Global Top 10</h3>
-            <ol id="leaderboardList"></ol>
-          </div>
-        </div>
-
-        <div class="version-tag" id="versionTag"></div>
-      </section>
-    </main>
-
-    <!-- Classic script runs before the deferred module below, so the Supabase
-         config is on `window` before any game code reads it. -->
-    <script src="./config.js"></script>
+    <!-- Three.js (UMD build) exposes a global `THREE` before our modules run. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script type="module" src="./game.js"></script>
   </body>
 </html>

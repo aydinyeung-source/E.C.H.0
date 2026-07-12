@@ -13,6 +13,11 @@ const bestText = document.getElementById("bestText");
 const gameOverSummary = document.getElementById("gameOverSummary");
 const dailyBestText = document.getElementById("dailyBestText");
 const leaderboardList = document.getElementById("leaderboardList");
+const versionTag = document.getElementById("versionTag");
+
+// Single source of truth for the build version (semver: MAJOR.MINOR.PATCH).
+// Bumped on every deploy and shown in the corner of the phone frame.
+const VERSION = "v1.0.0";
 
 const VIEW_WIDTH = 450;
 const VIEW_HEIGHT = 800;
@@ -573,6 +578,7 @@ function bindButtons() {
 }
 
 function initialize() {
+  versionTag.textContent = VERSION;
   loadDailyBest(getTodayKey());
   setupInput();
   bindButtons();

@@ -183,3 +183,16 @@ button.secondary {
 #leaderboardList li {
   color: rgba(238, 244, 255, 0.9);
 }
+
+/* Subtle build version, always visible in the bottom corner of the frame. */
+.version-tag {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  color: rgba(238, 244, 255, 0.35);
+  pointer-events: none;
+}

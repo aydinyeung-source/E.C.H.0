@@ -11,18 +11,39 @@
     <!-- Full-viewport WebGL surface. -->
     <canvas id="scene"></canvas>
 
-    <!-- Center reticle, only meaningful once pointer-locked. -->
+    <!-- Center reticle + live distance readout, only meaningful once locked. -->
     <div class="crosshair" aria-hidden="true"></div>
+    <div class="distance-tag" id="distanceTag"></div>
 
     <!-- Start / pause overlay. Shown until the pointer is locked. -->
     <div class="overlay" id="startOverlay">
       <div class="panel">
         <h1>E.C.H.0</h1>
         <p class="tagline">You are somewhere you shouldn't be.</p>
+
+        <!-- Account: login / signup when logged out, status when logged in. -->
+        <div class="account">
+          <div id="authForms">
+            <div class="auth-tabs">
+              <button id="tabLogin" class="tab active" type="button">Log in</button>
+              <button id="tabSignup" class="tab" type="button">Sign up</button>
+            </div>
+            <input id="authEmail" type="email" placeholder="email" autocomplete="email" />
+            <input id="authPassword" type="password" placeholder="password" autocomplete="current-password" />
+            <input id="authUsername" class="hidden" type="text" maxlength="20" placeholder="username" autocomplete="off" />
+            <button id="authSubmit" type="button">Log in</button>
+            <p id="authMsg" class="auth-msg"></p>
+          </div>
+          <div id="authUserBox" class="hidden">
+            <span>Signed in as <strong id="authUserLabel"></strong></span>
+            <button id="logoutButton" class="secondary small" type="button">Log out</button>
+          </div>
+        </div>
+
         <ul class="controls">
           <li><span>Move</span><strong>W&nbsp;A&nbsp;S&nbsp;D</strong></li>
           <li><span>Look</span><strong>Mouse</strong></li>
-          <li><span>Sonar pulse</span><strong>Click</strong></li>
+          <li><span>Sonar pulse</span><strong>Left click</strong></li>
           <li><span>Release cursor</span><strong>Esc</strong></li>
         </ul>
 
@@ -36,9 +57,15 @@
         </div>
 
         <div class="overlay-actions">
-          <button id="startButton">Enter</button>
-          <button id="dailyButton" class="secondary">Daily Challenge</button>
+          <button id="startButton" type="button">Enter</button>
+          <button id="dailyButton" class="secondary" type="button">Daily Challenge</button>
         </div>
+
+        <div class="leaderboard">
+          <h3>Daily Top 10 <span class="sub">· distance explored</span></h3>
+          <ol id="leaderboardList"></ol>
+        </div>
+
         <p class="hint">The dark only answers when you call to it.</p>
       </div>
     </div>
@@ -46,6 +73,9 @@
     <div class="seed-tag" id="seedTag"></div>
     <div class="version-tag" id="versionTag"></div>
 
+    <!-- Supabase config (blank keys => offline). Classic script runs first so
+         window.SUPABASE_* is set before the modules read it. -->
+    <script src="./config.js"></script>
     <!-- Three.js (UMD build) exposes a global `THREE` before our modules run. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script type="module" src="./game.js"></script>

@@ -9,8 +9,10 @@
 import { World, SPAWN, setWorldSeed } from "./world.js";
 import { Player, BASE_SENSITIVITY } from "./player.js";
 import { SonarSystem } from "./sonar.js";
+import { Menu } from "./menu.js";
+import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.1.0";
+const VERSION = "v2.2.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -20,6 +22,7 @@ const seedInput = document.getElementById("seedInput");
 const sensSlider = document.getElementById("sensSlider");
 const sensValue = document.getElementById("sensValue");
 const seedTag = document.getElementById("seedTag");
+const distanceTag = document.getElementById("distanceTag");
 const versionTag = document.getElementById("versionTag");
 
 // --- Three.js core ----------------------------------------------------------
@@ -80,24 +83,29 @@ function todayUTC() {
 }
 
 // --- Run control ------------------------------------------------------------
-let activeSeed = 0;
+// A "run" tracks the active seed, whether it's the competitive daily challenge,
+// and the furthest distance reached from spawn (the leaderboard metric).
+const run = { seed: 0, date: todayUTC(), isDaily: false, maxDistance: 0 };
 
-function startRun(rawSeedText, label) {
-  activeSeed = parseSeed(rawSeedText);
-  setWorldSeed(activeSeed);
+function startRun(rawSeedText, label, isDaily) {
+  run.seed = parseSeed(rawSeedText);
+  run.isDaily = isDaily;
+  run.date = todayUTC();
+  run.maxDistance = 0;
+  setWorldSeed(run.seed);
   player.reset(SPAWN);
   world.reset();
   world.update(player.pos); // rebuild chunks around spawn from the new seed
-  seedTag.textContent = (label ? label + " · " : "") + "SEED " + activeSeed;
+  seedTag.textContent = (label ? label + " · " : "") + "SEED " + run.seed;
   canvas.requestPointerLock();
 }
 
-startButton.addEventListener("click", () => startRun(seedInput.value, null));
+startButton.addEventListener("click", () => startRun(seedInput.value, null, false));
 
 dailyButton.addEventListener("click", () => {
   const date = todayUTC();
   seedInput.value = date;
-  startRun(date, "DAILY " + date);
+  startRun(date, "DAILY " + date, true);
 });
 
 // --- Look-sensitivity setting (persisted) -----------------------------------
@@ -123,18 +131,40 @@ sensSlider.addEventListener("input", () => {
 document.addEventListener("pointerlockchange", () => {
   const locked = document.pointerLockElement === canvas;
   startOverlay.classList.toggle("hidden", locked);
-  if (locked) sonar.pulse(player.pos); // an opening ping to get your bearings
+  if (locked) {
+    sonar.pulse(player.pos); // an opening ping to get your bearings
+  } else {
+    // Pausing ends the run: submit the daily distance and refresh the board.
+    if (run.isDaily && run.maxDistance > 0) {
+      submitDistance({ seed: run.seed, date: run.date, distance: run.maxDistance })
+        .then(() => Menu.refreshLeaderboard(run.date));
+    }
+  }
 });
 
-canvas.addEventListener("mousedown", () => {
-  if (document.pointerLockElement === canvas) sonar.pulse(player.pos);
+// Only the LEFT button fires a sonar pulse. Right/other buttons just steer the
+// camera (pointer-lock look is button-agnostic); suppress the context menu too.
+canvas.addEventListener("mousedown", (e) => {
+  if (e.button === 0 && document.pointerLockElement === canvas) sonar.pulse(player.pos);
 });
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+// --- Distance tracking ------------------------------------------------------
+// "Distance explored" = furthest straight-line distance reached from spawn.
+function updateDistance() {
+  if (document.pointerLockElement !== canvas) return;
+  const dx = player.pos.x - SPAWN.x;
+  const dz = player.pos.z - SPAWN.z;
+  const d = Math.sqrt(dx * dx + dz * dz);
+  if (d > run.maxDistance) run.maxDistance = d;
+  distanceTag.textContent = Math.round(run.maxDistance) + "m";
+}
 
 // --- Main loop --------------------------------------------------------------
 let last = performance.now();
@@ -145,10 +175,14 @@ function loop(now) {
   player.update(dt, world);
   world.update(player.pos);
   sonar.update(dt);
+  updateDistance();
 
   renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
 
+// --- Boot -------------------------------------------------------------------
 versionTag.textContent = VERSION;
+Menu.init();
+Menu.refreshLeaderboard(todayUTC());
 requestAnimationFrame(loop);

@@ -12,7 +12,7 @@ import { SonarSystem } from "./sonar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.2.2";
+const VERSION = "v2.3.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");

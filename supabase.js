@@ -57,21 +57,33 @@ function notConfigured() {
 
 // --- Auth -------------------------------------------------------------------
 
-export async function signUp({ email, password, username }) {
+// Supabase Auth is email-based, but the game logs in with usernames only. We
+// map each username to a stable synthetic email, lowercased. That makes login
+// case-insensitive AND enforces case-insensitive uniqueness for free (Supabase
+// rejects a duplicate email), while the original-cased username is kept in the
+// profile row for display.
+function usernameToEmail(username) {
+  return `${username.trim().toLowerCase()}@echo0.app`;
+}
+
+export async function signUp({ username, password }) {
   const client = await loadClient();
   if (!client) return { ok: false, error: notConfigured() };
   const { data, error } = await client.auth.signUp({
-    email,
+    email: usernameToEmail(username),
     password,
-    options: { data: { username } },
+    options: { data: { username: username.trim() } }, // original casing -> profile
   });
   return { ok: !error, error, user: data?.user ?? null, session: data?.session ?? null };
 }
 
-export async function signIn({ email, password }) {
+export async function signIn({ username, password }) {
   const client = await loadClient();
   if (!client) return { ok: false, error: notConfigured() };
-  const { data, error } = await client.auth.signInWithPassword({ email, password });
+  const { data, error } = await client.auth.signInWithPassword({
+    email: usernameToEmail(username),
+    password,
+  });
   return { ok: !error, error, user: data?.user ?? null };
 }
 

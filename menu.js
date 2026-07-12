@@ -23,9 +23,9 @@ export const Menu = {
   async init() {
     this.tabLogin = el("tabLogin");
     this.tabSignup = el("tabSignup");
-    this.email = el("authEmail");
-    this.password = el("authPassword");
     this.username = el("authUsername");
+    this.password = el("authPassword");
+    this.confirm = el("authConfirm");
     this.submit = el("authSubmit");
     this.msg = el("authMsg");
     this.forms = el("authForms");
@@ -58,40 +58,57 @@ export const Menu = {
     const signup = mode === "signup";
     this.tabLogin.classList.toggle("active", !signup);
     this.tabSignup.classList.toggle("active", signup);
-    this.username.classList.toggle("hidden", !signup);
+    this.confirm.classList.toggle("hidden", !signup); // confirm password on signup only
     this.submit.textContent = signup ? "Create account" : "Log in";
     this.msg.textContent = "";
   },
 
   async _onSubmit() {
     if (this.submit.disabled) return;
-    const email = this.email.value.trim();
-    const password = this.password.value;
+    const signup = this.mode === "signup";
     const username = this.username.value.trim();
-    if (!email || !password || (this.mode === "signup" && !username)) {
+    const password = this.password.value;
+    const confirm = this.confirm.value;
+
+    if (!username || !password || (signup && !confirm)) {
       this.msg.textContent = "Fill in all fields.";
       return;
+    }
+    if (signup) {
+      if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+        this.msg.textContent = "Username: 3–20 letters, numbers, or _.";
+        return;
+      }
+      if (password.length < 6) {
+        this.msg.textContent = "Password must be at least 6 characters.";
+        return;
+      }
+      if (password !== confirm) {
+        this.msg.textContent = "Passwords don't match.";
+        return;
+      }
     }
 
     this.submit.disabled = true;
     this.msg.textContent = "…";
-    const res = this.mode === "signup"
-      ? await signUp({ email, password, username })
-      : await signIn({ email, password });
+    const res = signup
+      ? await signUp({ username, password })
+      : await signIn({ username, password });
     this.submit.disabled = false;
 
     if (!res.ok) {
       this.msg.textContent = res.error?.message || "Something went wrong.";
       return;
     }
-    if (this.mode === "signup" && !res.session) {
-      // Email confirmation is on: no session yet.
-      this.msg.textContent = "Account created — confirm via email, then log in.";
+    if (signup && !res.session) {
+      // No session means email confirmation is still on in Supabase — it must be
+      // OFF for username logins (the synthetic email can't be confirmed).
+      this.msg.textContent = "Account created — turn off email confirmation in Supabase, then log in.";
       this._setMode("login");
       return;
     }
     this.msg.textContent = "";
-    // _syncUser runs via onAuthChange, but call it directly too for immediacy.
+    // _syncUser also runs via onAuthChange, but call it directly for immediacy.
     this._syncUser(res.user || (await getCurrentUser()));
   },
 

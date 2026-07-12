@@ -25,11 +25,25 @@
           <li><span>Sonar pulse</span><strong>Click</strong></li>
           <li><span>Release cursor</span><strong>Esc</strong></li>
         </ul>
-        <button id="startButton">Enter</button>
+
+        <div class="field">
+          <label for="seedInput">Seed <span class="sub">(blank = random)</span></label>
+          <input id="seedInput" type="text" maxlength="32" placeholder="type anything…" autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label for="sensSlider">Look sensitivity <span id="sensValue" class="sub">1.0x</span></label>
+          <input id="sensSlider" type="range" min="0.4" max="2.5" step="0.05" value="1" />
+        </div>
+
+        <div class="overlay-actions">
+          <button id="startButton">Enter</button>
+          <button id="dailyButton" class="secondary">Daily Challenge</button>
+        </div>
         <p class="hint">The dark only answers when you call to it.</p>
       </div>
     </div>
 
+    <div class="seed-tag" id="seedTag"></div>
     <div class="version-tag" id="versionTag"></div>
 
     <!-- Three.js (UMD build) exposes a global `THREE` before our modules run. -->

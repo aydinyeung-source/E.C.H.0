@@ -1,19 +1,25 @@
 // game.js
 // -----------------------------------------------------------------------------
 // Bootstraps the Three.js scene and drives the main loop, wiring together the
-// three subsystems: the endless World, the first-person Player, and the green
-// Sonar. Keeps no game logic of its own beyond setup and the frame loop.
+// endless World, the first-person Player, and the green Sonar. Also owns the
+// front-end concerns: seed selection (Minecraft-style), the daily challenge,
+// and the persisted look-sensitivity setting.
 // -----------------------------------------------------------------------------
 
-import { World, SPAWN } from "./world.js";
-import { Player } from "./player.js";
+import { World, SPAWN, setWorldSeed } from "./world.js";
+import { Player, BASE_SENSITIVITY } from "./player.js";
 import { SonarSystem } from "./sonar.js";
 
-const VERSION = "v2.0.0";
+const VERSION = "v2.1.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
 const startButton = document.getElementById("startButton");
+const dailyButton = document.getElementById("dailyButton");
+const seedInput = document.getElementById("seedInput");
+const sensSlider = document.getElementById("sensSlider");
+const sensValue = document.getElementById("sensValue");
+const seedTag = document.getElementById("seedTag");
 const versionTag = document.getElementById("versionTag");
 
 // --- Three.js core ----------------------------------------------------------
@@ -23,8 +29,6 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
-// Exponential black fog dissolves everything into the void with distance, so the
-// sonar only ever reveals your immediate surroundings.
 scene.fog = new THREE.FogExp2(0x000000, 0.045);
 
 const camera = new THREE.PerspectiveCamera(
@@ -39,18 +43,89 @@ const world = new World(scene);
 const player = new Player(camera, canvas, SPAWN);
 const sonar = new SonarSystem(scene);
 
-world.update(player.pos); // prime the chunks around the spawn point
+// Prime a random world behind the overlay so the scene isn't empty on load.
+setWorldSeed(parseSeed(""));
+world.update(player.pos);
 
-// --- Input ------------------------------------------------------------------
-startButton.addEventListener("click", () => canvas.requestPointerLock());
+// --- Seed helpers (Minecraft-style) -----------------------------------------
+// Numeric input is used as the literal seed; any other text is hashed to one.
+// Blank input yields a fresh random seed each run.
+function hashString(str) {
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  h = Math.imul(h ^ (h >>> 16), 2246822507);
+  h = Math.imul(h ^ (h >>> 13), 3266489909);
+  return (h ^ (h >>> 16)) >>> 0;
+}
 
+function parseSeed(text) {
+  const s = (text || "").trim();
+  if (!s) return Math.floor(Math.random() * 0xffffffff) >>> 0;
+  if (/^\d{1,10}$/.test(s)) {
+    const n = Number(s);
+    if (n <= 0xffffffff) return n >>> 0;
+  }
+  return hashString(s);
+}
+
+// UTC date so the "daily challenge" seed is the same for everyone worldwide.
+function todayUTC() {
+  const d = new Date();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${mm}-${dd}`;
+}
+
+// --- Run control ------------------------------------------------------------
+let activeSeed = 0;
+
+function startRun(rawSeedText, label) {
+  activeSeed = parseSeed(rawSeedText);
+  setWorldSeed(activeSeed);
+  player.reset(SPAWN);
+  world.reset();
+  world.update(player.pos); // rebuild chunks around spawn from the new seed
+  seedTag.textContent = (label ? label + " · " : "") + "SEED " + activeSeed;
+  canvas.requestPointerLock();
+}
+
+startButton.addEventListener("click", () => startRun(seedInput.value, null));
+
+dailyButton.addEventListener("click", () => {
+  const date = todayUTC();
+  seedInput.value = date;
+  startRun(date, "DAILY " + date);
+});
+
+// --- Look-sensitivity setting (persisted) -----------------------------------
+const SENS_KEY = "echo-sensitivity-mult";
+
+function applySensitivity(mult) {
+  player.sensitivity = BASE_SENSITIVITY * mult;
+  sensValue.textContent = mult.toFixed(1) + "x";
+}
+
+const storedMult = parseFloat(localStorage.getItem(SENS_KEY));
+const initialMult = Number.isFinite(storedMult) ? storedMult : 1.0;
+sensSlider.value = initialMult;
+applySensitivity(initialMult);
+
+sensSlider.addEventListener("input", () => {
+  const mult = parseFloat(sensSlider.value);
+  applySensitivity(mult);
+  localStorage.setItem(SENS_KEY, String(mult));
+});
+
+// --- Pointer lock + sonar input ---------------------------------------------
 document.addEventListener("pointerlockchange", () => {
   const locked = document.pointerLockElement === canvas;
   startOverlay.classList.toggle("hidden", locked);
-  if (locked) sonar.pulse(player.pos); // an opening ping so you can get your bearings
+  if (locked) sonar.pulse(player.pos); // an opening ping to get your bearings
 });
 
-// A click while locked fires a sonar pulse from the player's position.
 canvas.addEventListener("mousedown", () => {
   if (document.pointerLockElement === canvas) sonar.pulse(player.pos);
 });
@@ -64,7 +139,7 @@ window.addEventListener("resize", () => {
 // --- Main loop --------------------------------------------------------------
 let last = performance.now();
 function loop(now) {
-  const dt = Math.min((now - last) / 1000, 0.05); // clamp long frames (e.g. tab switch)
+  const dt = Math.min((now - last) / 1000, 0.05); // clamp long frames (tab switch)
   last = now;
 
   player.update(dt, world);

@@ -43,9 +43,17 @@ const _s = new THREE.Vector3();
 const _c = new THREE.Color();
 const _xAxis = new THREE.Vector3(1, 0, 0);
 
-// Deterministic 2D hash -> [0, 1). Same coords always yield the same value.
+// The world seed (Minecraft-style): the same seed always produces the same
+// maze, a different seed a completely different one. Set before a run starts.
+let SEED = 0;
+export function setWorldSeed(seed) {
+  SEED = seed >>> 0;
+}
+
+// Deterministic 2D hash -> [0, 1). Folds in the world seed so the layout is
+// unique per seed, yet identical for everyone using that seed.
 function hash2(x, y, salt) {
-  let h = (x | 0) * 374761393 + (y | 0) * 668265263 + salt * 2654435761;
+  let h = (x | 0) * 374761393 + (y | 0) * 668265263 + salt * 2654435761 + SEED * 40503;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
@@ -161,6 +169,19 @@ export class World {
 
     this.scene.add(group);
     return { group, bounds };
+  }
+
+  // Tear down every live chunk. Call this after changing the seed so the next
+  // update() rebuilds the world fresh from the new seed.
+  reset() {
+    for (const chunk of this.chunks.values()) {
+      this.scene.remove(chunk.group);
+      chunk.group.traverse((obj) => {
+        if (obj.isInstancedMesh) obj.dispose();
+      });
+    }
+    this.chunks.clear();
+    this.playerChunk = { cx: NaN, cy: NaN };
   }
 
   // Stream chunks in/out whenever the player crosses a chunk boundary.

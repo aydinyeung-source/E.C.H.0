@@ -8,8 +8,11 @@
 const EYE_HEIGHT = 1.7;
 const MOVE_SPEED = 3.4;        // units/second — a slow, uneasy walk
 const PLAYER_RADIUS = 0.35;    // collision radius on the XZ plane
-const LOOK_SENSITIVITY = 0.0022;
 const PITCH_LIMIT = Math.PI / 2 - 0.05;
+
+// Default look sensitivity (radians of rotation per pixel of mouse movement).
+// Higher than the original tuning; the settings slider scales this at runtime.
+export const BASE_SENSITIVITY = 0.004;
 
 export class Player {
   constructor(camera, domElement, spawn) {
@@ -19,8 +22,18 @@ export class Player {
     this.yaw = 0;
     this.pitch = 0;
     this.keys = new Set();
+    this.sensitivity = BASE_SENSITIVITY; // live-adjustable via the settings slider
     this.euler = new THREE.Euler(0, 0, 0, "YXZ"); // yaw then pitch, no roll
     this._bindInput();
+    this._apply();
+  }
+
+  // Return to the spawn point facing forward — used when (re)starting a run.
+  reset(spawn) {
+    this.pos.copy(spawn);
+    this.yaw = 0;
+    this.pitch = 0;
+    this.keys.clear();
     this._apply();
   }
 
@@ -31,8 +44,8 @@ export class Player {
   _bindInput() {
     document.addEventListener("mousemove", (e) => {
       if (!this.isLocked) return;
-      this.yaw -= e.movementX * LOOK_SENSITIVITY;
-      this.pitch -= e.movementY * LOOK_SENSITIVITY;
+      this.yaw -= e.movementX * this.sensitivity;
+      this.pitch -= e.movementY * this.sensitivity;
       this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
     });
     window.addEventListener("keydown", (e) => this.keys.add(e.code));

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#050816" />
+    <title>Echo Drift</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="phone-frame">
+        <canvas id="gameCanvas" width="450" height="800" aria-label="Echo Drift game"></canvas>
+
+        <div class="hud" aria-live="polite">
+          <div class="hud-pill">
+            <span>Score</span>
+            <strong id="scoreText">0</strong>
+          </div>
+          <div class="hud-pill">
+            <span>Best</span>
+            <strong id="bestText">0</strong>
+          </div>
+        </div>
+
+        <div class="overlay active" id="startOverlay">
+          <h1>Echo Drift</h1>
+          <p>Drag to steer. Tap or drag to pulse a sonar wave and reveal hidden hazards.</p>
+          <button id="startButton">Start Run</button>
+        </div>
+
+        <div class="overlay hidden" id="gameOverOverlay">
+          <h2>Run Ended</h2>
+          <p id="gameOverSummary">Your score was saved to the global leaderboard.</p>
+
+          <label class="nickname-field" for="nicknameInput">
+            Nickname
+            <input id="nicknameInput" maxlength="16" placeholder="Anonymous" />
+          </label>
+
+          <div class="overlay-actions">
+            <button id="submitScoreButton">Save Score</button>
+            <button id="restartButton" class="secondary">Play Again</button>
+          </div>
+
+          <div class="leaderboard-card">
+            <h3>Personal Daily Best</h3>
+            <p id="dailyBestText">0</p>
+          </div>
+
+          <div class="leaderboard-card">
+            <h3>Global Top 10</h3>
+            <ol id="leaderboardList"></ol>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./game.js"></script>
+  </body>
+</html>

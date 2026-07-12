@@ -3,9 +3,14 @@ let clientError = null;
 
 function getConfig() {
   const globalScope = window;
+  const url = globalScope.SUPABASE_URL || globalScope.__SUPABASE_URL__ || "";
+  const key = globalScope.SUPABASE_ANON_KEY || globalScope.__SUPABASE_ANON_KEY__ || "";
+  // Treat un-filled template placeholders as "not configured" so a half-edited
+  // config.js cleanly uses the offline fallback instead of failing to connect.
+  const isPlaceholder = url.includes("YOUR-PROJECT") || key.startsWith("YOUR-");
   return {
-    url: globalScope.SUPABASE_URL || globalScope.__SUPABASE_URL__ || "",
-    key: globalScope.SUPABASE_ANON_KEY || globalScope.__SUPABASE_ANON_KEY__ || "",
+    url: isPlaceholder ? "" : url,
+    key: isPlaceholder ? "" : key,
   };
 }
 

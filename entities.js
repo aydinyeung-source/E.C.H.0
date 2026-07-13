@@ -1,5 +1,8 @@
 // entities.js
 // -----------------------------------------------------------------------------
+import { installReveal } from "./reveal.js";
+
+// -----------------------------------------------------------------------------
 // The threat. Figures spawn out in the dark and home straight toward the player,
 // phasing through walls (no cheap safety). They are pitch black — only a sonar
 // pulse lights them up — except for faint red eyes that glint in the void so you
@@ -22,12 +25,14 @@ export class EntitySystem {
     this.scene = scene;
     this.entities = [];
     this.spawnCd = FIRST_DELAY;
+    this.nearest = Infinity; // distance to the closest entity (for footstep audio)
 
     // Shared assets — only a handful of entities exist at once.
     this.bodyGeo = new THREE.CylinderGeometry(0.22, 0.32, 1.5, 8);
     this.headGeo = new THREE.SphereGeometry(0.26, 10, 8);
     this.eyeGeo = new THREE.SphereGeometry(0.05, 6, 6);
     this.bodyMat = new THREE.MeshLambertMaterial({ color: BODY_COLOR });
+    installReveal(this.bodyMat); // the sonar reveals their shape out of the dark
     this.eyeMat = new THREE.MeshBasicMaterial({ color: EYE_COLOR }); // unlit = always glowing
   }
 
@@ -36,6 +41,7 @@ export class EntitySystem {
     for (const e of this.entities) this.scene.remove(e.group);
     this.entities = [];
     this.spawnCd = FIRST_DELAY;
+    this.nearest = Infinity;
   }
 
   _spawn(playerPos) {
@@ -71,6 +77,7 @@ export class EntitySystem {
     }
 
     let caught = false;
+    let nearest = Infinity;
     for (let i = this.entities.length - 1; i >= 0; i--) {
       const e = this.entities[i];
       const dx = playerPos.x - e.x;
@@ -79,20 +86,23 @@ export class EntitySystem {
 
       if (d < KILL_RADIUS) {
         caught = true;
+        nearest = Math.min(nearest, d);
         continue;
       }
       if (d > DESPAWN) {
         this.scene.remove(e.group);
         this.entities.splice(i, 1);
-        continue;
+        continue; // leaving; don't count toward "nearest"
       }
 
+      nearest = Math.min(nearest, d);
       const inv = 1 / (d || 1);
       e.x += dx * inv * SPEED * dt;
       e.z += dz * inv * SPEED * dt;
       e.group.position.set(e.x, 0, e.z);
       e.group.rotation.y = Math.atan2(dx, dz); // face the player (eyes forward)
     }
+    this.nearest = nearest;
     return caught;
   }
 }

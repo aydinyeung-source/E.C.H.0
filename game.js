@@ -10,10 +10,11 @@ import { World, SPAWN, setWorldSeed } from "./world.js";
 import { Player, BASE_SENSITIVITY } from "./player.js";
 import { SonarSystem } from "./sonar.js";
 import { EntitySystem } from "./entities.js";
+import { AudioSystem } from "./audio.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.5.0";
+const VERSION = "v2.6.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -48,10 +49,12 @@ const camera = new THREE.PerspectiveCamera(
 // --- Subsystems -------------------------------------------------------------
 const world = new World(scene);
 const player = new Player(camera, canvas, SPAWN);
-const sonar = new SonarSystem(scene);
+const sonar = new SonarSystem();
 const entities = new EntitySystem(scene);
+const audio = new AudioSystem();
 
 let dead = false; // true once an entity has caught the player
+let stepTimer = 0; // countdown to the next footstep sound
 
 // Prime a random world behind the overlay so the scene isn't empty on load.
 setWorldSeed(parseSeed(""));
@@ -100,6 +103,8 @@ function startRun(rawSeedText, label, isDaily) {
   run.date = todayUTC();
   run.maxDistance = 0;
   dead = false;
+  stepTimer = 0;
+  audio.init(); // this is called from a click, so audio is allowed to start
   gameOverOverlay.classList.add("hidden");
   setWorldSeed(run.seed);
   player.reset(SPAWN);
@@ -212,6 +217,19 @@ function loop(now) {
   // Entities only hunt while actively playing (locked and alive).
   if (document.pointerLockElement === canvas && !dead) {
     if (entities.update(dt, player.pos, run.maxDistance)) die();
+
+    // Footsteps: play faster and louder the closer the nearest entity is.
+    const near = entities.nearest;
+    if (near < 15) {
+      stepTimer -= dt;
+      if (stepTimer <= 0) {
+        const prox = 1 - near / 15; // 0 (far) .. 1 (right behind you)
+        audio.footstep(0.06 + prox * 0.4);
+        stepTimer = 0.75 - prox * 0.45; // 0.3s when close .. 0.75s when far
+      }
+    } else {
+      stepTimer = 0.15; // primed to step almost immediately when one nears
+    }
   }
 
   renderer.render(scene, camera);

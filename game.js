@@ -17,7 +17,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.13.1";
+const VERSION = "v2.14.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -48,6 +48,14 @@ const mcPing = document.getElementById("mcPing");
 const mcEat = document.getElementById("mcEat");
 const mcPause = document.getElementById("mcPause");
 const hotbarEl = document.getElementById("hotbar");
+const settingsToggle = document.getElementById("settingsToggle");
+const settingsBody = document.getElementById("settingsBody");
+
+// Settings is a tab: the header button opens/closes the panel body.
+settingsToggle.addEventListener("click", () => {
+  const nowHidden = settingsBody.classList.toggle("hidden");
+  settingsToggle.setAttribute("aria-expanded", String(!nowHidden));
+});
 
 // --- Three.js core ----------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });

@@ -37,9 +37,10 @@
     <!-- Home screen. Shown until the pointer is locked. Corner panels for
          settings (top-left) and account (top-right); play controls centered. -->
     <div class="overlay" id="startOverlay">
-      <!-- Top-left: settings -->
+      <!-- Top-left: settings, collapsed into a tab you open. -->
       <div class="menu-panel top-left">
-        <h2 class="panel-title">⚙ Settings</h2>
+        <button class="panel-toggle" id="settingsToggle" type="button" aria-expanded="false">⚙ Settings</button>
+        <div class="panel-body hidden" id="settingsBody">
         <div class="field">
           <label for="sensSlider">Look sensitivity <span id="sensValue" class="sub">1.0x</span></label>
           <input id="sensSlider" type="range" min="0.4" max="2.5" step="0.05" value="1" />
@@ -60,8 +61,13 @@
             <option value="KeyE">E</option>
           </select>
         </div>
+        <p class="headphones-note">
+          🎧 <strong>Headphones recommended.</strong> Entities are tracked by 3D
+          sound — you hear exactly where they are, and walls muffle them.
+        </p>
         <p class="controls-hint">WASD move · Mouse look · Q run · 1-9 / scroll select · F eat · Esc pause</p>
         <p class="panel-version">Build <strong id="versionLabel">—</strong></p>
+        </div>
       </div>
 
       <!-- Top-right: account -->
@@ -87,6 +93,7 @@
       <div class="menu-center">
         <h1>E.C.H.0</h1>
         <p class="tagline">You are somewhere you shouldn't be.</p>
+        <p class="headphones">🎧 Headphones recommended</p>
 
         <div class="field seed-field">
           <label for="seedInput">Seed <span class="sub">(blank = random)</span></label>

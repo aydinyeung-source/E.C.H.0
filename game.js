@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.11.0";
+const VERSION = "v2.12.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -46,7 +46,7 @@ const mcRun = document.getElementById("mcRun");
 const mcPing = document.getElementById("mcPing");
 const mcEat = document.getElementById("mcEat");
 const mcPause = document.getElementById("mcPause");
-const backpackTag = document.getElementById("backpackTag");
+const hotbarEl = document.getElementById("hotbar");
 
 // --- Three.js core ----------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -122,26 +122,111 @@ function setPlaying(v) {
     player.touchStrafe = 0;
   }
   energyBar.classList.toggle("hidden", !v);
-  backpackTag.classList.toggle("hidden", !v);
+  hotbarEl.classList.toggle("hidden", !v);
   radarCanvas.classList.toggle("hidden", !v);
   mobileControls.classList.toggle("hidden", !(v && deviceMode === "mobile"));
 }
 let energy = 100;    // 0..ENERGY_MAX; drained by running/sonar, refilled by eating
 let runMode = false; // toggled with Q
-let backpack = 0;    // meat carried; eaten on demand (F), not on pickup
 
 const ENERGY_MAX = 100;
 const RUN_DRAIN = 12; // energy per second while running and moving
 const SONAR_COST = 5; // energy per sonar reveal
-const BACKPACK_MAX = 5;
 
-// Eat one meat from the backpack. Refuses if the pack is empty or you're full,
-// so you can't waste food.
+// --- Hotbar inventory (Minecraft-style) -------------------------------------
+// Nine slots, each stacking one item type up to STACK_MAX. Pick a slot with the
+// number keys or the scroll wheel (or by tapping it on mobile); F eats whatever
+// is in the selected slot.
+const HOTBAR_SLOTS = 9;
+const STACK_MAX = 64;
+let hotbar = Array.from({ length: HOTBAR_SLOTS }, () => ({ type: null, count: 0 }));
+let selectedSlot = 0;
+
+function buildHotbar() {
+  hotbarEl.innerHTML = "";
+  for (let i = 0; i < HOTBAR_SLOTS; i++) {
+    const slot = document.createElement("div");
+    slot.className = "slot";
+    const num = document.createElement("span");
+    num.className = "slot-num";
+    num.textContent = i + 1;
+    const icon = document.createElement("div");
+    icon.className = "slot-icon";
+    const count = document.createElement("span");
+    count.className = "slot-count";
+    slot.append(num, icon, count);
+    slot.addEventListener("click", () => selectSlot(i)); // tap-to-select on mobile
+    hotbarEl.appendChild(slot);
+  }
+  renderHotbar();
+}
+
+function renderHotbar() {
+  for (let i = 0; i < HOTBAR_SLOTS; i++) {
+    const el = hotbarEl.children[i];
+    if (!el) continue;
+    const item = hotbar[i];
+    const filled = item.type !== null && item.count > 0;
+    el.classList.toggle("selected", i === selectedSlot);
+    el.querySelector(".slot-icon").classList.toggle("meat", filled && item.type === "meat");
+    el.querySelector(".slot-count").textContent = filled && item.count > 1 ? item.count : "";
+  }
+}
+
+function selectSlot(i) {
+  selectedSlot = ((i % HOTBAR_SLOTS) + HOTBAR_SLOTS) % HOTBAR_SLOTS;
+  renderHotbar();
+}
+
+function resetHotbar() {
+  hotbar = Array.from({ length: HOTBAR_SLOTS }, () => ({ type: null, count: 0 }));
+  selectedSlot = 0;
+  renderHotbar();
+}
+
+// How many more meat we could carry (used to leave meat on the ground if full).
+function meatCapacity() {
+  let cap = 0;
+  for (const s of hotbar) {
+    if (s.type === "meat") cap += STACK_MAX - s.count;
+    else if (s.type === null || s.count === 0) cap += STACK_MAX;
+  }
+  return cap;
+}
+
+// Top up existing stacks first, then spill into empty slots.
+function addMeat(n) {
+  let left = n;
+  for (const s of hotbar) {
+    if (left <= 0) break;
+    if (s.type === "meat" && s.count < STACK_MAX) {
+      const take = Math.min(left, STACK_MAX - s.count);
+      s.count += take;
+      left -= take;
+    }
+  }
+  for (const s of hotbar) {
+    if (left <= 0) break;
+    if (s.type === null || s.count === 0) {
+      s.type = "meat";
+      const take = Math.min(left, STACK_MAX);
+      s.count = take;
+      left -= take;
+    }
+  }
+  renderHotbar();
+}
+
+// Eat one item from the SELECTED slot. Refuses at full energy so food isn't wasted.
 function eat() {
-  if (!playing || backpack <= 0 || energy >= ENERGY_MAX) return;
-  backpack--;
+  if (!playing || energy >= ENERGY_MAX) return;
+  const s = hotbar[selectedSlot];
+  if (!s || s.type !== "meat" || s.count <= 0) return;
+  s.count--;
+  if (s.count === 0) s.type = null;
   energy = Math.min(ENERGY_MAX, energy + MEAT_ENERGY);
   audio.pickup();
+  renderHotbar();
 }
 
 function updateRunButton() {
@@ -200,7 +285,7 @@ function startRun(rawSeedText, label, isDaily) {
   heartTimer = 0;
   energy = ENERGY_MAX;
   runMode = false;
-  backpack = 0;
+  resetHotbar();
   updateRunButton();
   radar.clear();
   audio.init(); // this is called from a click, so audio is allowed to start
@@ -420,10 +505,12 @@ canvas.addEventListener("mousedown", (e) => {
   if (sonarBinding === "mouse" + e.button) fireSonar();
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault()); // never show the menu
-// Swallow trackpad two-finger scroll / swipe gestures while playing, so they
-// can't scroll the page or trigger browser back-navigation (which drops the lock).
+// Scrolling cycles the hotbar selection (and is swallowed while playing, so it
+// can't scroll the page or trigger browser back-navigation and drop the lock).
 canvas.addEventListener("wheel", (e) => {
-  if (playing) e.preventDefault();
+  if (!playing) return;
+  e.preventDefault();
+  selectSlot(selectedSlot + (e.deltaY > 0 ? 1 : -1));
 }, { passive: false });
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
@@ -432,7 +519,12 @@ window.addEventListener("keydown", (e) => {
     runMode = !runMode;
     updateRunButton();
   }
-  if (e.code === "KeyF") eat(); // eat one meat from the backpack
+  if (e.code === "KeyF") eat(); // eat from the selected hotbar slot
+  // 1-9 select a hotbar slot.
+  if (e.code.startsWith("Digit")) {
+    const n = parseInt(e.code.slice(5), 10);
+    if (n >= 1 && n <= HOTBAR_SLOTS) selectSlot(n - 1);
+  }
 });
 
 window.addEventListener("resize", () => {
@@ -476,17 +568,16 @@ function loop(now) {
 
     if (entities.update(dt, player.pos, run.maxDistance, world)) die();
 
-    // Collect any decayed meat within reach into the backpack (eaten later, on F).
-    const free = BACKPACK_MAX - backpack;
-    if (free > 0) {
-      const got = pickups.update(player.pos, free);
+    // Collect any decayed meat within reach into the hotbar (eaten later, on F).
+    const capacity = meatCapacity();
+    if (capacity > 0) {
+      const got = pickups.update(player.pos, capacity);
       if (got > 0) {
-        backpack += got;
+        addMeat(got);
         audio.pickup();
       }
     }
     energyFill.style.width = (energy / ENERGY_MAX) * 100 + "%";
-    backpackTag.textContent = `BACKPACK ${backpack}/${BACKPACK_MAX}`;
 
     // Footsteps: play faster and louder the closer the nearest entity is.
     const near = entities.nearest;
@@ -525,6 +616,7 @@ function loop(now) {
 // --- Boot -------------------------------------------------------------------
 versionTag.textContent = VERSION;
 versionLabel.textContent = VERSION;
+buildHotbar();
 Menu.init();
 Menu.refreshLeaderboard(todayUTC());
 requestAnimationFrame(loop);

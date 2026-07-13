@@ -9,6 +9,7 @@
 import { World, SPAWN, setWorldSeed } from "./world.js";
 import { Player, BASE_SENSITIVITY } from "./player.js";
 import { SonarSystem } from "./sonar.js";
+import { WAVE_SPEED } from "./reveal.js";
 import { EntitySystem } from "./entities.js";
 import { AudioSystem } from "./audio.js";
 import { Pickups, MEAT_ENERGY } from "./pickups.js";
@@ -16,7 +17,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.12.0";
+const VERSION = "v2.13.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -74,7 +75,6 @@ const pickups = new Pickups(scene);
 const radar = new Radar(radarCanvas);
 
 let dead = false;    // true once an entity has caught the player
-let stepTimer = 0;   // countdown to the next footstep sound
 let heartTimer = 0;  // countdown to the next heartbeat (tempo scales with proximity)
 let playing = false; // actively in a run (pointer-locked on PC, or started on mobile)
 
@@ -126,12 +126,14 @@ function setPlaying(v) {
   radarCanvas.classList.toggle("hidden", !v);
   mobileControls.classList.toggle("hidden", !(v && deviceMode === "mobile"));
 }
-let energy = 100;    // 0..ENERGY_MAX; drained by running/sonar, refilled by eating
 let runMode = false; // toggled with Q
 
-const ENERGY_MAX = 100;
-const RUN_DRAIN = 12; // energy per second while running and moving
-const SONAR_COST = 5; // energy per sonar reveal
+// A full bar is now ~21s of continuous sprinting (was ~8s, which drained far too
+// fast to actually outrun anything).
+const ENERGY_MAX = 150;
+const RUN_DRAIN = 7;  // energy per second while running and moving
+const SONAR_COST = 4; // energy per sonar reveal
+let energy = ENERGY_MAX; // drained by running/sonar, refilled by eating
 
 // --- Hotbar inventory (Minecraft-style) -------------------------------------
 // Nine slots, each stacking one item type up to STACK_MAX. Pick a slot with the
@@ -281,7 +283,6 @@ function startRun(rawSeedText, label, isDaily) {
   run.date = todayUTC();
   run.maxDistance = 0;
   dead = false;
-  stepTimer = 0;
   heartTimer = 0;
   energy = ENERGY_MAX;
   runMode = false;
@@ -296,6 +297,7 @@ function startRun(rawSeedText, label, isDaily) {
   world.reset();
   world.update(player.pos); // rebuild chunks around spawn from the new seed
   entities.reset();
+  audio.resetVoices(); // drop spatial voices from the previous run
   pickups.reset(player.pos);
   seedTag.textContent = (label ? label + " · " : "") + "SEED " + run.seed;
 
@@ -499,6 +501,14 @@ function fireSonar() {
   radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
   entities.hearSonar(player.pos.x, player.pos.z); // the sound draws entities in
   energy = Math.max(0, energy - SONAR_COST);      // revealing costs energy
+
+  // As the ring sweeps outward it "hits" each entity in turn — fire a sharp
+  // directional cue at that entity's exact position the moment it's reached, so
+  // you can hear precisely where it is in the dark.
+  for (const e of entities.entities) {
+    const d = Math.hypot(e.x - player.pos.x, e.z - player.pos.z);
+    audio.pingEntity(e, d / WAVE_SPEED);
+  }
 }
 
 canvas.addEventListener("mousedown", (e) => {
@@ -553,6 +563,7 @@ function loop(now) {
   // Apply run intent before moving: you can only run with energy to spare.
   player.running = runMode && energy > 0;
   player.update(dt, world);
+  audio.updateListener(camera); // 3D listener follows your head every frame
   world.update(player.pos);
   world.animate(now * 0.001); // flickering lights
   sonar.update(dt);
@@ -579,21 +590,14 @@ function loop(now) {
     }
     energyFill.style.width = (energy / ENERGY_MAX) * 100 + "%";
 
-    // Footsteps: play faster and louder the closer the nearest entity is.
-    const near = entities.nearest;
-    if (near < 15) {
-      stepTimer -= dt;
-      if (stepTimer <= 0) {
-        const prox = 1 - near / 15; // 0 (far) .. 1 (right behind you)
-        audio.footstep(0.06 + prox * 0.4);
-        stepTimer = 0.75 - prox * 0.45; // 0.3s when close .. 0.75s when far
-      }
-    } else {
-      stepTimer = 0.15; // primed to step almost immediately when one nears
-    }
+    // 3D spatial audio: position each entity's panner, muffle it through walls,
+    // and schedule its (spatialised) footsteps.
+    audio.updateEntities(entities.entities, player.pos, world, dt);
 
-    // Proximity heartbeat: kicks in inside 5m and accelerates from a slow heavy
-    // thud into a frantic flutter as the entity closes to 1m.
+    // Proximity heartbeat (NOT spatialised — it's your own heart). Kicks in
+    // inside 5m and accelerates from a slow heavy thud into a frantic flutter as
+    // the entity closes to 1m.
+    const near = entities.nearest;
     if (near < 5) {
       const t = Math.max(0, Math.min(1, (5 - near) / 4)); // 0 at 5m .. 1 at 1m
       heartTimer -= dt;

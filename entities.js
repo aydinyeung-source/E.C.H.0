@@ -1,6 +1,7 @@
 // entities.js
 // -----------------------------------------------------------------------------
 import { installReveal } from "./reveal.js";
+import { RUN_SPEED as PLAYER_RUN_SPEED } from "./player.js";
 
 // -----------------------------------------------------------------------------
 // The threat: sound-driven, sight-driven, and solid.
@@ -20,7 +21,12 @@ import { installReveal } from "./reveal.js";
 const BODY_COLOR = 0x0a0a0a;
 const EYE_COLOR = 0xff1f1f;
 const BASE_SPEED = 2.4;             // "1x" — used within CLOSE_RANGE
-const CHASE_SPEED = BASE_SPEED * 2.5; // 2.5x — used when hunting from further out
+// 2.5x when enraged/hunting from range — but HARD-CAPPED below the player's
+// sprint so a running player can always break away. Derived from the player's
+// actual run speed, so retuning that can never accidentally make entities
+// un-outrunnable. (2.4*2.5 = 6.0 vs the 6.46 cap, so it lands at 6.0 — about
+// 21% slower than a sprint, and still faster than a 5.1 walk.)
+const CHASE_SPEED = Math.min(BASE_SPEED * 2.5, PLAYER_RUN_SPEED * 0.85);
 const CLOSE_RANGE = 5;              // metres; inside this the entity slows to 1x
 const LOS_MEMORY = 2;               // seconds it keeps chasing after losing sight
 const KILL_RADIUS = 0.9;            // contact distance (XZ) that ends the run

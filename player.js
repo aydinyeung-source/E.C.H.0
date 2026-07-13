@@ -7,7 +7,9 @@
 
 const EYE_HEIGHT = 1.7;
 const MOVE_SPEED = 5.1;        // units/second — brisk walk (1.5x the old pace)
-const RUN_SPEED = 7.6;         // while running mode is on and energy remains
+// Exported so the entities can guarantee their chase speed stays below it —
+// a hunt you literally cannot outrun isn't a chase, it's a cutscene.
+export const RUN_SPEED = 7.6;  // while running mode is on and energy remains
 const PLAYER_RADIUS = 0.35;    // collision radius on the XZ plane
 const PITCH_LIMIT = Math.PI / 2 - 0.05;
 

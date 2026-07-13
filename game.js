@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.16.0";
+const VERSION = "v2.17.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -141,8 +141,9 @@ let runMode = false; // toggled with Q
 // A full bar is now ~21s of continuous sprinting (was ~8s, which drained far too
 // fast to actually outrun anything).
 const ENERGY_MAX = 150;
-const RUN_DRAIN = 7;  // energy per second while running and moving
-const SONAR_COST = 4; // energy per sonar reveal
+const RUN_DRAIN = 7;   // energy per second while running and moving
+const WALK_REGEN = 4;  // energy per second regained while walking (not running)
+const SONAR_COST = 4;  // energy per sonar reveal
 let energy = ENERGY_MAX; // drained by running/sonar, refilled by eating
 
 // --- Hotbar inventory (Minecraft-style) -------------------------------------
@@ -578,9 +579,12 @@ function loop(now) {
 
   // Entities only hunt while actively playing (and alive).
   if (playing && !dead) {
-    // Running drains energy while actually moving.
+    // Running drains energy; walking slowly gives it back, so backing off to a
+    // walk is a real recovery option rather than just being slower.
     if (player.running && player.moving) {
       energy = Math.max(0, energy - RUN_DRAIN * dt);
+    } else if (player.moving) {
+      energy = Math.min(ENERGY_MAX, energy + WALK_REGEN * dt);
     }
 
     if (entities.update(dt, player.pos, run.maxDistance, world)) die();

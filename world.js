@@ -25,15 +25,24 @@ import { installReveal } from "./reveal.js";
 const CELL = 6;          // cell size / hallway width (world units)
 const WALL_H = 3.2;      // wall + ceiling height (low and oppressive)
 const WALL_T = 0.3;      // wall thickness
-// Every chunk gets EXACTLY this many walls out of its 32 candidate edges
-// (CHUNK_CELLS^2 cells x 2 owned edges). A fixed budget means wall density —
-// and therefore difficulty — is the same in every chunk, instead of some coming
-// out wide open and others a dense maze.
-const WALLS_PER_CHUNK = 11;
+// The maze is CARVED, not sprinkled: every chunk starts fully walled and a
+// depth-first search tunnels passages through it. Sprinkling walls onto an open
+// grid (the old approach) left most cells wide open — which is exactly what
+// killed the liminal, boxed-in feeling.
+//
+// STRAIGHT_BIAS is the chance the carver keeps going in the same direction,
+// which is what produces long unbroken corridors instead of a twisty warren.
+// DOOR_PROB opens doorways along chunk borders so chunks connect (each border
+// edge is decided by a pure hash, so both neighbouring chunks always agree).
+const STRAIGHT_BIAS = 0.85;
+const DOOR_PROB = 0.3;
 const BLOOD_CHANCE = 0.03; // fraction of individual walls that carry bloody writing
-const CHUNK_CELLS = 4;   // cells per chunk edge
+const CHUNK_CELLS = 6;   // cells per chunk edge (bigger = longer unbroken halls)
 const CHUNK_SIZE = CELL * CHUNK_CELLS;
-const CHUNK_RADIUS = 2;  // chunks kept live around the player (per axis)
+// Chunks are 6x6 cells (36u) now, so a radius of 1 already keeps 36-72u of world
+// live in every direction — well past where the fog blacks everything out (~40u).
+// Keeping this at 2 would quadruple the geometry for scenery you can never see.
+const CHUNK_RADIUS = 1;  // chunks kept live around the player (per axis)
 
 const COL_WALL = 0xd8c840;  // backrooms wall yellow
 const COL_FLOOR = 0xb8a63a; // grimy carpet yellow
@@ -63,12 +72,12 @@ const WALL_VARIANT_WEIGHTS = [0.14, 0.16, 0.24, 0.22, 0.16, 0.08];
 // The world seed (Minecraft-style): the same seed always produces the same
 // maze, a different seed a completely different one. Set before a run starts.
 let SEED = 0;
-const chunkWallCache = new Map(); // chunk key -> Set of edge keys carrying a wall
-const cellOpenCache = new Map();  // cell key -> Set of edges forced open (or null)
+const carveCache = new Map();    // chunk key -> Set of edges the maze tunnelled
+const cellOpenCache = new Map(); // cell key -> Set of edges forced open (or null)
 
 export function setWorldSeed(seed) {
   SEED = seed >>> 0;
-  chunkWallCache.clear(); // layouts depend on the seed
+  carveCache.clear(); // layouts depend on the seed
   cellOpenCache.clear();
 }
 
@@ -188,42 +197,78 @@ function isSpawnEdge(type, i, j) {
   return j === 0 && (i === 0 || i === 1);
 }
 
-// Which of a chunk's 32 candidate edges carry walls. The candidates are shuffled
-// with a seeded RNG and exactly WALLS_PER_CHUNK are taken, so EVERY chunk has the
-// same wall density — no lucky wide-open chunks, no impassably dense ones.
-function chunkWalls(cx, cy) {
+// The edge id separating two adjacent cells.
+function edgeBetween(i1, j1, i2, j2) {
+  if (i2 === i1 + 1) return "1:" + i2 + ":" + j1; // west edge of the right cell
+  if (i2 === i1 - 1) return "1:" + i1 + ":" + j1; // west edge of this cell
+  if (j2 === j1 + 1) return "0:" + i1 + ":" + j2; // south edge of the far cell
+  return "0:" + i1 + ":" + j1;                    // south edge of this cell
+}
+
+// Carve a maze through one chunk: depth-first search from its corner, tunnelling
+// through walls. The STRAIGHT_BIAS makes the carver prefer to keep heading the
+// same way, which is what turns a twisty warren into long hallways.
+function chunkCarved(cx, cy) {
   const key = cx + ":" + cy;
-  const cached = chunkWallCache.get(key);
+  const cached = carveCache.get(key);
   if (cached) return cached;
 
-  const cands = [];
+  const rng = mulberry32(hashInt(cx, cy, 7717));
   const i0 = cx * CHUNK_CELLS;
   const j0 = cy * CHUNK_CELLS;
-  for (let di = 0; di < CHUNK_CELLS; di++) {
-    for (let dj = 0; dj < CHUNK_CELLS; dj++) {
-      cands.push("0:" + (i0 + di) + ":" + (j0 + dj)); // south edge
-      cands.push("1:" + (i0 + di) + ":" + (j0 + dj)); // west edge
+  const carved = new Set();
+  const visited = new Set([i0 + "," + j0]);
+  const stack = [{ i: i0, j: j0, dir: null }];
+
+  while (stack.length) {
+    const cur = stack[stack.length - 1];
+    const options = [];
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const ni = cur.i + di;
+      const nj = cur.j + dj;
+      if (ni < i0 || ni >= i0 + CHUNK_CELLS || nj < j0 || nj >= j0 + CHUNK_CELLS) continue;
+      if (visited.has(ni + "," + nj)) continue;
+      options.push([di, dj, ni, nj]);
     }
-  }
-  const rng = mulberry32(hashInt(cx, cy, 7717));
-  for (let k = cands.length - 1; k > 0; k--) { // deterministic Fisher-Yates
-    const r = Math.floor(rng() * (k + 1));
-    const tmp = cands[k];
-    cands[k] = cands[r];
-    cands[r] = tmp;
+    if (!options.length) {
+      stack.pop();
+      continue;
+    }
+
+    let pick = null;
+    if (cur.dir) {
+      const straight = options.find((o) => o[0] === cur.dir[0] && o[1] === cur.dir[1]);
+      if (straight && rng() < STRAIGHT_BIAS) pick = straight; // keep the hall going
+    }
+    if (!pick) pick = options[Math.floor(rng() * options.length)];
+
+    const [di, dj, ni, nj] = pick;
+    carved.add(edgeBetween(cur.i, cur.j, ni, nj));
+    visited.add(ni + "," + nj);
+    stack.push({ i: ni, j: nj, dir: [di, dj] });
   }
 
-  const set = new Set(cands.slice(0, WALLS_PER_CHUNK));
-  if (chunkWallCache.size > 400) chunkWallCache.clear(); // bound memory
-  chunkWallCache.set(key, set);
-  return set;
+  if (carveCache.size > 200) carveCache.clear(); // bound memory
+  carveCache.set(key, carved);
+  return carved;
 }
 
 function rawWall(type, i, j) {
   if (isSpawnEdge(type, i, j)) return false;
-  const cx = Math.floor(i / CHUNK_CELLS);
-  const cy = Math.floor(j / CHUNK_CELLS);
-  return chunkWalls(cx, cy).has(type + ":" + i + ":" + j);
+
+  // Which two cells does this edge separate?
+  const bi = type === 0 ? i : i - 1;
+  const bj = type === 0 ? j - 1 : j;
+  const ca = { cx: Math.floor(i / CHUNK_CELLS), cy: Math.floor(j / CHUNK_CELLS) };
+  const cb = { cx: Math.floor(bi / CHUNK_CELLS), cy: Math.floor(bj / CHUNK_CELLS) };
+
+  if (ca.cx === cb.cx && ca.cy === cb.cy) {
+    // Internal to one chunk: solid unless the maze carved through it.
+    return !chunkCarved(ca.cx, ca.cy).has(type + ":" + i + ":" + j);
+  }
+  // Chunk border: solid unless it's a doorway. A pure hash of the edge, so both
+  // chunks sharing it always reach the same answer.
+  return hash2(i, j, type === 0 ? 311 : 411) >= DOOR_PROB;
 }
 
 // NO DEAD ENDS: every cell is guaranteed at least TWO open edges, so you can

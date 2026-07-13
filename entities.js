@@ -1,5 +1,8 @@
 // entities.js
 // -----------------------------------------------------------------------------
+import { installReveal } from "./reveal.js";
+
+// -----------------------------------------------------------------------------
 // The threat. Figures spawn out in the dark and home straight toward the player,
 // phasing through walls (no cheap safety). They are pitch black — only a sonar
 // pulse lights them up — except for faint red eyes that glint in the void so you
@@ -29,6 +32,7 @@ export class EntitySystem {
     this.headGeo = new THREE.SphereGeometry(0.26, 10, 8);
     this.eyeGeo = new THREE.SphereGeometry(0.05, 6, 6);
     this.bodyMat = new THREE.MeshLambertMaterial({ color: BODY_COLOR });
+    installReveal(this.bodyMat); // the sonar rings reveal their shape
     this.eyeMat = new THREE.MeshBasicMaterial({ color: EYE_COLOR }); // unlit = always glowing
   }
 

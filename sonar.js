@@ -1,62 +1,60 @@
 // sonar.js
 // -----------------------------------------------------------------------------
-// The sonar is the ONLY thing that illuminates the yellow world. Each click
-// emits an expanding green pulse: a point light placed at the player whose reach
-// (`distance`) grows outward while its `intensity` fades. As the wavefront sweeps
-// past a surface it flares green, then sinks back into darkness — a light-based
-// echolocation effect.
-//
-// A small pool of lights lets several pulses overlap without ever adding an
-// unbounded number of lights to the scene (which would tank performance, since
-// every light is evaluated per lit fragment).
+// A click emits a burst of THREE expanding green rings. Each ring's radius grows
+// over time (radius = age * speed); where the ring front reaches a surface it
+// lights up and then slowly fades (glow-in-the-dark — see reveal.js). This module
+// just advances each ring's age and writes origin + age into the shared reveal
+// uniforms every frame. No lights, no rendering here.
 // -----------------------------------------------------------------------------
 
-const POOL_SIZE = 5;       // max simultaneous pulses
-const COLOR = 0x39ff14;    // neon green
-const SPEED = 24;          // wavefront expansion speed (units/second)
-const MAX_RANGE = 44;      // how far a pulse reaches before dying
-const PEAK_INTENSITY = 7;  // brightness at the pulse's origin
-const DECAY = 1.3;         // point-light physical falloff
+import { revealUniforms, ECHO_MAX, GLOW_TIME, WAVE_SPEED } from "./reveal.js";
+
+const WAVES_PER_CLICK = 3; // a click sends 3 rings...
+const WAVE_GAP = 0.12;     // ...staggered this many seconds apart
+const REACH = 46;          // track a ring until its front passes this far
+const LIFETIME = GLOW_TIME + REACH / WAVE_SPEED + 0.5; // keep alive until glow fades
 
 export class SonarSystem {
-  constructor(scene) {
-    this.pulses = [];
-    for (let i = 0; i < POOL_SIZE; i++) {
-      // distance starts tiny (>0 so it's a ranged, not infinite, light).
-      const light = new THREE.PointLight(COLOR, 0, 0.001, DECAY);
-      light.visible = false;
-      scene.add(light);
-      this.pulses.push({ light, age: 0, active: false });
+  constructor() {
+    this.slots = [];
+    for (let i = 0; i < ECHO_MAX; i++) {
+      this.slots.push({ origin: new THREE.Vector3(), age: 0, active: false });
     }
     this.cursor = 0;
-    this.life = MAX_RANGE / SPEED; // seconds for the wavefront to reach MAX_RANGE
   }
 
-  // Fire a new pulse from `position`, reusing the oldest slot in the pool.
+  // Fire three staggered rings from `position`. Negative starting age delays a
+  // ring until its age crosses zero (the reveal ignores tsp < 0).
   pulse(position) {
-    const p = this.pulses[this.cursor];
-    this.cursor = (this.cursor + 1) % this.pulses.length;
-    p.light.position.copy(position);
-    p.age = 0;
-    p.active = true;
-    p.light.visible = true;
+    for (let k = 0; k < WAVES_PER_CLICK; k++) {
+      const slot = this.slots[this.cursor];
+      this.cursor = (this.cursor + 1) % this.slots.length;
+      slot.origin.copy(position);
+      slot.age = -k * WAVE_GAP;
+      slot.active = true;
+    }
   }
 
+  // Requirement #1: the radius grows with delta time — age += dt here, and the
+  // shader derives radius = age * speed. Requirement #2: origin + age are written
+  // into the shared uniforms every single frame below.
   update(dt) {
-    for (const p of this.pulses) {
-      if (!p.active) continue;
-      p.age += dt;
-      const t = p.age / this.life; // 0 -> 1 across the pulse's life
-      if (t >= 1) {
-        p.active = false;
-        p.light.visible = false;
-        p.light.intensity = 0;
+    const waves = revealUniforms.uWaves.value;
+    const on = revealUniforms.uWaveOn.value;
+    for (let i = 0; i < this.slots.length; i++) {
+      const s = this.slots[i];
+      if (!s.active) {
+        on[i] = 0;
         continue;
       }
-      // Reach grows linearly; brightness eases out quadratically so surfaces
-      // fade smoothly back to black once the wave has passed them.
-      p.light.distance = t * MAX_RANGE;
-      p.light.intensity = PEAK_INTENSITY * (1 - t) * (1 - t);
+      s.age += dt;
+      if (s.age > LIFETIME) {
+        s.active = false;
+        on[i] = 0;
+        continue;
+      }
+      waves[i].set(s.origin.x, s.origin.y, s.origin.z, s.age);
+      on[i] = 1;
     }
   }
 }

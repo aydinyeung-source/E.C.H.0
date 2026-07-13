@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.17.0";
+const VERSION = "v2.18.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -47,6 +47,7 @@ const mcPing = document.getElementById("mcPing");
 const mcEat = document.getElementById("mcEat");
 const mcPause = document.getElementById("mcPause");
 const hotbarEl = document.getElementById("hotbar");
+const wardFlash = document.getElementById("wardFlash");
 const settingsToggle = document.getElementById("settingsToggle");
 const settingsBody = document.getElementById("settingsBody");
 
@@ -144,6 +145,10 @@ const ENERGY_MAX = 150;
 const RUN_DRAIN = 7;   // energy per second while running and moving
 const WALK_REGEN = 4;  // energy per second regained while walking (not running)
 const SONAR_COST = 4;  // energy per sonar reveal
+
+// Crucifix: your only defence. Brandishing it breaks everything nearby off you.
+const WARD_RADIUS = 14; // metres
+const WARD_TIME = 7;    // seconds they flee for
 let energy = ENERGY_MAX; // drained by running/sonar, refilled by eating
 
 // --- Hotbar inventory (Minecraft-style) -------------------------------------
@@ -181,7 +186,9 @@ function renderHotbar() {
     const item = hotbar[i];
     const filled = item.type !== null && item.count > 0;
     el.classList.toggle("selected", i === selectedSlot);
-    el.querySelector(".slot-icon").classList.toggle("meat", filled && item.type === "meat");
+    const icon = el.querySelector(".slot-icon");
+    icon.classList.toggle("meat", filled && item.type === "meat");
+    icon.classList.toggle("crucifix", filled && item.type === "crucifix");
     el.querySelector(".slot-count").textContent = filled && item.count > 1 ? item.count : "";
   }
 }
@@ -197,22 +204,22 @@ function resetHotbar() {
   renderHotbar();
 }
 
-// How many more meat we could carry (used to leave meat on the ground if full).
-function meatCapacity() {
+// Room left for a given item type (so a full pack leaves things on the ground).
+function capacityFor(type) {
   let cap = 0;
   for (const s of hotbar) {
-    if (s.type === "meat") cap += STACK_MAX - s.count;
+    if (s.type === type) cap += STACK_MAX - s.count;
     else if (s.type === null || s.count === 0) cap += STACK_MAX;
   }
   return cap;
 }
 
 // Top up existing stacks first, then spill into empty slots.
-function addMeat(n) {
+function addItem(type, n) {
   let left = n;
   for (const s of hotbar) {
     if (left <= 0) break;
-    if (s.type === "meat" && s.count < STACK_MAX) {
+    if (s.type === type && s.count < STACK_MAX) {
       const take = Math.min(left, STACK_MAX - s.count);
       s.count += take;
       left -= take;
@@ -221,7 +228,7 @@ function addMeat(n) {
   for (const s of hotbar) {
     if (left <= 0) break;
     if (s.type === null || s.count === 0) {
-      s.type = "meat";
+      s.type = type;
       const take = Math.min(left, STACK_MAX);
       s.count = take;
       left -= take;
@@ -230,16 +237,36 @@ function addMeat(n) {
   renderHotbar();
 }
 
-// Eat one item from the SELECTED slot. Refuses at full energy so food isn't wasted.
-function eat() {
-  if (!playing || energy >= ENERGY_MAX) return;
+function consumeSelected() {
   const s = hotbar[selectedSlot];
-  if (!s || s.type !== "meat" || s.count <= 0) return;
   s.count--;
   if (s.count === 0) s.type = null;
-  energy = Math.min(ENERGY_MAX, energy + MEAT_ENERGY);
-  audio.pickup();
   renderHotbar();
+}
+
+// F uses whatever is in the SELECTED slot — eat meat, or brandish a crucifix.
+function useSelected() {
+  if (!playing) return;
+  const s = hotbar[selectedSlot];
+  if (!s || s.count <= 0) return;
+
+  if (s.type === "meat") {
+    if (energy >= ENERGY_MAX) return; // refuse, so food isn't wasted
+    consumeSelected();
+    energy = Math.min(ENERGY_MAX, energy + MEAT_ENERGY);
+    audio.pickup();
+  } else if (s.type === "crucifix") {
+    consumeSelected();
+    entities.repel(player.pos, WARD_RADIUS, WARD_TIME);
+    audio.ward();
+    wardFlash.classList.remove("hidden");
+    void wardFlash.offsetWidth; // restart the CSS animation
+    wardFlash.classList.add("flash");
+    setTimeout(() => {
+      wardFlash.classList.remove("flash");
+      wardFlash.classList.add("hidden");
+    }, 600);
+  }
 }
 
 function updateRunButton() {
@@ -424,7 +451,7 @@ homeButton.addEventListener("click", () => {
 
 // --- Mobile on-screen buttons -----------------------------------------------
 mcPing.addEventListener("click", () => fireSonar());
-mcEat.addEventListener("click", () => eat());
+mcEat.addEventListener("click", () => useSelected());
 mcRun.addEventListener("click", () => {
   runMode = !runMode;
   updateRunButton();
@@ -536,7 +563,7 @@ window.addEventListener("keydown", (e) => {
     runMode = !runMode;
     updateRunButton();
   }
-  if (e.code === "KeyF") eat(); // eat from the selected hotbar slot
+  if (e.code === "KeyF") useSelected(); // eat meat / brandish a crucifix
   // 1-9 select a hotbar slot.
   if (e.code.startsWith("Digit")) {
     const n = parseInt(e.code.slice(5), 10);
@@ -589,15 +616,10 @@ function loop(now) {
 
     if (entities.update(dt, player.pos, run.maxDistance, world)) die();
 
-    // Collect any decayed meat within reach into the hotbar (eaten later, on F).
-    const capacity = meatCapacity();
-    if (capacity > 0) {
-      const got = pickups.update(player.pos, capacity);
-      if (got > 0) {
-        addMeat(got);
-        audio.pickup();
-      }
-    }
+    // Pick up anything within reach that we have room for (used later, on F).
+    const taken = pickups.update(player.pos, (type) => capacityFor(type) > 0);
+    for (const type of taken) addItem(type, 1);
+    if (taken.length) audio.pickup();
     energyFill.style.width = (energy / ENERGY_MAX) * 100 + "%";
 
     // 3D spatial audio: position each entity's panner, muffle it through walls,

@@ -25,12 +25,15 @@
     <!-- Sonar radar (bottom-right, shown while playing). -->
     <canvas id="radar" class="radar hidden" width="180" height="180"></canvas>
 
+    <!-- Screen flash when a crucifix is brandished. -->
+    <div id="wardFlash" class="ward-flash hidden" aria-hidden="true"></div>
+
     <!-- Mobile on-screen controls: left half of the canvas drives movement and
          the right half drives the camera; these buttons sit on the right. -->
     <div class="mobile-controls hidden" id="mobileControls">
       <button class="mc-btn" id="mcPing" type="button">PING</button>
       <button class="mc-btn" id="mcRun" type="button">RUN</button>
-      <button class="mc-btn" id="mcEat" type="button">EAT</button>
+      <button class="mc-btn" id="mcEat" type="button">USE</button>
       <button class="mc-btn mc-pause" id="mcPause" type="button">II</button>
     </div>
 
@@ -65,7 +68,10 @@
           🎧 <strong>Headphones recommended.</strong> Entities are tracked by 3D
           sound — you hear exactly where they are, and walls muffle them.
         </p>
-        <p class="controls-hint">WASD move · Mouse look · Q run · 1-9 / scroll select · F eat · Esc pause</p>
+        <p class="controls-hint">
+          <strong>PC:</strong> WASD move · Mouse look · Q run · 1-9 / scroll select slot · F use · Esc pause<br />
+          <strong>Mobile:</strong> left half moves · right half looks · tap a hotbar slot to select · USE button
+        </p>
         <p class="panel-version">Build <strong id="versionLabel">—</strong></p>
         </div>
       </div>

@@ -523,6 +523,54 @@ button.secondary:hover {
   box-shadow: 0 0 6px rgba(200, 60, 30, 0.5);
 }
 
+/* A crucifix, drawn with two crossed bars. */
+.slot-icon.crucifix {
+  position: relative;
+  background: none;
+}
+
+.slot-icon.crucifix::before,
+.slot-icon.crucifix::after {
+  content: "";
+  position: absolute;
+  background: #f2ead0;
+  box-shadow: 0 0 7px rgba(255, 245, 210, 0.85);
+}
+
+.slot-icon.crucifix::before { /* upright */
+  left: 45%;
+  top: 0;
+  width: 10%;
+  height: 100%;
+}
+
+.slot-icon.crucifix::after { /* crossbar */
+  left: 15%;
+  top: 30%;
+  width: 70%;
+  height: 10%;
+}
+
+/* Holy flash when a crucifix is brandished. */
+.ward-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  background: radial-gradient(circle at center, rgba(255, 250, 225, 0.95), rgba(255, 240, 190, 0));
+  opacity: 0;
+}
+
+.ward-flash.flash {
+  animation: wardBurst 0.6s ease-out;
+}
+
+@keyframes wardBurst {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 .slot-count {
   position: absolute;
   bottom: 0;

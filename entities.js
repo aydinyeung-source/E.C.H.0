@@ -28,7 +28,9 @@ const BASE_SPEED = 2.4;             // "1x" — used within CLOSE_RANGE
 // 21% slower than a sprint, and still faster than a 5.1 walk.)
 const CHASE_SPEED = Math.min(BASE_SPEED * 2.5, PLAYER_RUN_SPEED * 0.85);
 const CLOSE_RANGE = 5;              // metres; inside this the entity slows to 1x
-const LOS_MEMORY = 2;               // seconds it keeps chasing after losing sight
+const LOS_MEMORY = 2;               // seconds it keeps chasing after losing SIGHT
+const PING_MEMORY = 3;              // seconds a sonar ping exposes you for
+const FLEE_SPEED = CHASE_SPEED;     // how fast a warded entity runs away
 const KILL_RADIUS = 0.9;            // contact distance (XZ) that ends the run
 const ENTITY_RADIUS = 0.35;         // collision radius, so it can't clip walls
 const REPATH_INTERVAL = 0.5;        // seconds between A* recomputes while blind
@@ -63,13 +65,31 @@ export class EntitySystem {
     this.nearest = Infinity;
   }
 
-  // Every entity "hears" a sonar ping: it learns that location and repaths to it.
+  // A sonar ping gives you away — but only for PING_MEMORY seconds. Within that
+  // window they know where you are and hunt you; once it lapses, if they still
+  // can't SEE you, they lose you completely and stop chasing.
   hearSonar(x, z) {
     for (const e of this.entities) {
+      if (e.fleeTimer > 0) continue; // a warded entity isn't listening
       e.tx = x;
       e.tz = z;
+      e.trackTimer = Math.max(e.trackTimer, PING_MEMORY);
       e.path = null; // the destination moved; recompute the route
     }
+  }
+
+  // Brandishing a crucifix: everything within `radius` breaks off, loses you and
+  // flees for `duration` seconds.
+  repel(playerPos, radius, duration) {
+    let affected = 0;
+    for (const e of this.entities) {
+      if (Math.hypot(e.x - playerPos.x, e.z - playerPos.z) > radius) continue;
+      e.fleeTimer = duration;
+      e.trackTimer = 0; // it loses you entirely
+      e.path = null;
+      affected++;
+    }
+    return affected;
   }
 
   _spawn(playerPos) {
@@ -92,7 +112,15 @@ export class EntitySystem {
     this.scene.add(group);
 
     // Target starts at the spawn spot: it lurks there until it sees or hears you.
-    this.entities.push({ group, x, z, tx: x, tz: z, losTimer: 0, path: null, pathTimer: 0, canSee: false });
+    this.entities.push({
+      group, x, z,
+      tx: x, tz: z,       // last known player position
+      trackTimer: 0,      // >0 while it still knows where you are
+      fleeTimer: 0,       // >0 while warded off by a crucifix
+      path: null,
+      pathTimer: 0,
+      canSee: false,
+    });
   }
 
   // Returns true if an entity caught the player. `distance` (explored distance)
@@ -117,35 +145,61 @@ export class EntitySystem {
       const dzp = playerPos.z - e.z;
       const dPlayer = Math.hypot(dxp, dzp);
 
-      if (dPlayer < KILL_RADIUS) {
-        caught = true;
-        nearest = Math.min(nearest, dPlayer);
-        continue;
-      }
       if (dPlayer > DESPAWN) {
         this.scene.remove(e.group);
         this.entities.splice(i, 1);
         continue;
       }
+
+      // --- Warded off (crucifix) --------------------------------------------
+      // It has broken off entirely: it can't see you, can't catch you, and runs.
+      if (e.fleeTimer > 0) {
+        e.fleeTimer -= dt;
+        e.canSee = false;
+        nearest = Math.min(nearest, dPlayer);
+        const fx = e.x - playerPos.x;
+        const fz = e.z - playerPos.z;
+        const fd = Math.hypot(fx, fz) || 1;
+        _v.set(e.x + (fx / fd) * FLEE_SPEED * dt, 0, e.z + (fz / fd) * FLEE_SPEED * dt);
+        world.collide(_v, ENTITY_RADIUS);
+        e.x = _v.x;
+        e.z = _v.z;
+        e.group.position.set(e.x, 0, e.z);
+        e.group.rotation.y = Math.atan2(fx, fz); // facing away
+        continue;
+      }
+
+      if (dPlayer < KILL_RADIUS) {
+        caught = true;
+        nearest = Math.min(nearest, dPlayer);
+        continue;
+      }
       nearest = Math.min(nearest, dPlayer);
 
-      // --- Sight ------------------------------------------------------------
-      // A clear sightline means it sees you and locks onto your real position.
+      // --- Do we know where you are? ----------------------------------------
+      // Sight beats everything. Otherwise the tracking timer runs down: it was
+      // set to PING_MEMORY (3s) by a sonar ping, or LOS_MEMORY (2s) by having
+      // just seen you. When it hits zero without a sightline, it LOSES you.
       const canSee = !world.segmentBlocked(e.x, e.z, playerPos.x, playerPos.z);
       e.canSee = canSee; // the radar shows a live red dot for anything watching you
       if (canSee) {
         e.tx = playerPos.x;
         e.tz = playerPos.z;
-        e.losTimer = LOS_MEMORY;
+        e.trackTimer = LOS_MEMORY;
         e.path = null; // it can walk straight at you; no route needed
       } else {
-        e.losTimer -= dt;
-        if (e.losTimer > 0) {
-          // Still remembers you: keep hunting your current position...
+        e.trackTimer -= dt;
+        if (e.trackTimer > 0) {
+          // Still knows where you are: keep hunting your current position.
           e.tx = playerPos.x;
           e.tz = playerPos.z;
         }
-        // ...otherwise the target stays frozen at where it last knew you were.
+      }
+
+      // Lost you: stop chasing and just lurk where you last gave yourself away.
+      if (!canSee && e.trackTimer <= 0) {
+        e.group.rotation.y = Math.atan2(dxp, dzp);
+        continue;
       }
 
       // --- Steering ---------------------------------------------------------

@@ -286,7 +286,7 @@ export class AudioSystem {
     lp.type = "lowpass";
     lp.frequency.value = 1400;
     const hiss = ctx.createGain();
-    hiss.gain.value = 0.055; // sits under everything; felt, not listened to
+    hiss.gain.value = 0.022; // barely there — felt, not listened to
 
     // Slow sweep on the cutoff so the static drifts.
     const lfo = ctx.createOscillator();
@@ -309,7 +309,7 @@ export class AudioSystem {
     d2.type = "sine";
     d2.frequency.value = 52.6; // the offset is what makes it uneasy
     const drone = ctx.createGain();
-    drone.gain.value = 0.05;
+    drone.gain.value = 0.032;
     d1.connect(drone);
     d2.connect(drone);
     drone.connect(this.master);
@@ -399,6 +399,27 @@ export class AudioSystem {
     gain.connect(this._out());
     osc.start(at);
     osc.stop(at + dur + 0.08);
+  }
+
+  // Brandishing a crucifix: a bright, resonant chime — a clean major chord that
+  // rings out against all the dissonance, so relief is audible.
+  ward() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    for (const [freq, delay] of [[523.25, 0], [659.25, 0.05], [783.99, 0.1]]) {
+      const at = t + delay;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(freq, at);
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.4, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 1.6);
+      osc.connect(gain);
+      gain.connect(this._out());
+      osc.start(at);
+      osc.stop(at + 1.7);
+    }
   }
 
   // A short, bright blip when you pick up or eat meat.

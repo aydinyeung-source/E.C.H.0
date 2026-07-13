@@ -14,7 +14,7 @@ import { AudioSystem } from "./audio.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.6.1";
+const VERSION = "v2.6.2";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -27,6 +27,7 @@ const sonarKeySelect = document.getElementById("sonarKey");
 const seedTag = document.getElementById("seedTag");
 const distanceTag = document.getElementById("distanceTag");
 const versionTag = document.getElementById("versionTag");
+const versionLabel = document.getElementById("versionLabel");
 const gameOverOverlay = document.getElementById("gameOverOverlay");
 const gameOverDistance = document.getElementById("gameOverDistance");
 const tryAgainButton = document.getElementById("tryAgainButton");
@@ -255,6 +256,7 @@ function loop(now) {
 
 // --- Boot -------------------------------------------------------------------
 versionTag.textContent = VERSION;
+versionLabel.textContent = VERSION;
 Menu.init();
 Menu.refreshLeaderboard(todayUTC());
 requestAnimationFrame(loop);

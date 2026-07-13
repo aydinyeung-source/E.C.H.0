@@ -127,6 +127,17 @@ body {
   color: rgba(234, 255, 240, 0.42);
 }
 
+.panel-version {
+  margin: 10px 0 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  color: rgba(234, 255, 240, 0.55);
+}
+
+.panel-version strong {
+  color: #39ff14;
+}
+
 .seed-field {
   max-width: 300px;
   margin: 0 auto 16px;

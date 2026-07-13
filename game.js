@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.19.0";
+const VERSION = "v2.19.1";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -198,7 +198,13 @@ function buildHotbar() {
     const count = document.createElement("span");
     count.className = "slot-count";
     slot.append(num, icon, count);
-    slot.addEventListener("click", () => selectSlot(i)); // tap-to-select on mobile
+    // pointerdown, not click — see onPress(): a tap while another finger is down
+    // (moving) never generates a click on mobile.
+    slot.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      selectSlot(i);
+    });
     hotbarEl.appendChild(slot);
   }
   renderHotbar();
@@ -489,13 +495,26 @@ homeButton.addEventListener("click", () => {
 });
 
 // --- Mobile on-screen buttons -----------------------------------------------
-mcPing.addEventListener("click", () => fireSonar());
-mcEat.addEventListener("click", () => useSelected());
-mcRun.addEventListener("click", () => {
+// IMPORTANT: these use pointerdown, NOT click. Mobile browsers only synthesize a
+// click for a SINGLE-finger tap — if another finger is already down (the movement
+// joystick), a tap on a button is part of a multi-touch gesture and no click is
+// ever fired. That made every button dead unless you stopped moving first.
+// pointerdown fires per-pointer regardless of how many fingers are on the glass.
+function onPress(el, fn) {
+  el.addEventListener("pointerdown", (e) => {
+    e.preventDefault(); // don't also fire the synthesized mouse/click
+    e.stopPropagation();
+    fn();
+  });
+}
+
+onPress(mcPing, () => fireSonar());
+onPress(mcEat, () => useSelected());
+onPress(mcRun, () => {
   runMode = !runMode;
   updateRunButton();
 });
-mcPause.addEventListener("click", () => {
+onPress(mcPause, () => {
   if (playing) showPause();
 });
 

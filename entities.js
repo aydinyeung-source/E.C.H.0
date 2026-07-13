@@ -53,7 +53,7 @@ export class EntitySystem {
     this.bodyGeo = new THREE.CylinderGeometry(0.22, 0.32, 1.5, 8);
     this.headGeo = new THREE.SphereGeometry(0.26, 10, 8);
     this.eyeGeo = new THREE.SphereGeometry(0.05, 6, 6);
-    this.bodyMat = new THREE.MeshLambertMaterial({ color: BODY_COLOR });
+    this.bodyMat = new THREE.MeshPhongMaterial({ color: BODY_COLOR, shininess: 0 });
     installReveal(this.bodyMat); // the sonar rings reveal their shape
     this.eyeMat = new THREE.MeshBasicMaterial({ color: EYE_COLOR }); // always glowing
   }
@@ -79,17 +79,25 @@ export class EntitySystem {
   }
 
   // Brandishing a crucifix: everything within `radius` breaks off, loses you and
-  // flees for `duration` seconds.
+  // flees for `duration` seconds. This also snaps it out of a torch rage.
   repel(playerPos, radius, duration) {
     let affected = 0;
     for (const e of this.entities) {
       if (Math.hypot(e.x - playerPos.x, e.z - playerPos.z) > radius) continue;
       e.fleeTimer = duration;
-      e.trackTimer = 0; // it loses you entirely
+      e.trackTimer = 0;  // it loses you entirely
+      e.enrageTimer = 0; // and calms down
       e.path = null;
       affected++;
     }
     return affected;
+  }
+
+  // Caught in the torch beam. An ENRAGED entity knows exactly where you are
+  // regardless of walls or sight, and never slows down to stalk — it just comes.
+  enrage(entity, duration) {
+    if (entity.fleeTimer > 0) return; // a warded one is busy running
+    entity.enrageTimer = Math.max(entity.enrageTimer, duration);
   }
 
   _spawn(playerPos) {
@@ -117,6 +125,7 @@ export class EntitySystem {
       tx: x, tz: z,       // last known player position
       trackTimer: 0,      // >0 while it still knows where you are
       fleeTimer: 0,       // >0 while warded off by a crucifix
+      enrageTimer: 0,     // >0 while enraged by the torch beam
       path: null,
       pathTimer: 0,
       canSee: false,
@@ -182,11 +191,19 @@ export class EntitySystem {
       // just seen you. When it hits zero without a sightline, it LOSES you.
       const canSee = !world.segmentBlocked(e.x, e.z, playerPos.x, playerPos.z);
       e.canSee = canSee; // the radar shows a live red dot for anything watching you
-      if (canSee) {
+
+      // ENRAGED (you shone the torch in its face): it knows where you are through
+      // walls, and never loses you until the rage burns out.
+      const enraged = e.enrageTimer > 0;
+      if (enraged) e.enrageTimer -= dt;
+
+      if (canSee || enraged) {
         e.tx = playerPos.x;
         e.tz = playerPos.z;
-        e.trackTimer = LOS_MEMORY;
-        e.path = null; // it can walk straight at you; no route needed
+        if (canSee) {
+          e.trackTimer = LOS_MEMORY;
+          e.path = null; // it can walk straight at you; no route needed
+        }
       } else {
         e.trackTimer -= dt;
         if (e.trackTimer > 0) {
@@ -197,7 +214,7 @@ export class EntitySystem {
       }
 
       // Lost you: stop chasing and just lurk where you last gave yourself away.
-      if (!canSee && e.trackTimer <= 0) {
+      if (!canSee && !enraged && e.trackTimer <= 0) {
         e.group.rotation.y = Math.atan2(dxp, dzp);
         continue;
       }
@@ -225,7 +242,8 @@ export class EntitySystem {
       const az = aimZ - e.z;
       const dAim = Math.hypot(ax, az);
       if (dAim > 0.05) {
-        const speed = dPlayer < CLOSE_RANGE ? BASE_SPEED : CHASE_SPEED;
+        // Enraged, it never drops to a stalk — it just keeps coming at full pace.
+        const speed = !enraged && dPlayer < CLOSE_RANGE ? BASE_SPEED : CHASE_SPEED;
         const step = (speed * dt) / dAim;
         _v.set(e.x + ax * step, 0, e.z + az * step);
         world.collide(_v, ENTITY_RADIUS); // solid: pushed out of walls, slides along them

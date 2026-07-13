@@ -340,13 +340,13 @@ export class World {
     // untouched wall in a rotting hallway is its own kind of wrong. Each variant
     // draws its own random blotches, so walls don't repeat the same stain map.
     this.wallMats = WALL_GRIME_LEVELS.map(
-      (grime) => new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture(grime, "grime") })
+      (grime) => new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 0, map: makeWallTexture(grime, "grime") })
     );
     // Rare bloody-writing material, applied to only a scattered few walls so it
     // stays a shock rather than plastering every surface.
-    this.bloodMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture(0.5, "blood") });
-    this.floorMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeFloorTexture() });
-    this.ceilMat = new THREE.MeshLambertMaterial({ color: COL_CEIL });
+    this.bloodMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 0, map: makeWallTexture(0.5, "blood") });
+    this.floorMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 0, map: makeFloorTexture() });
+    this.ceilMat = new THREE.MeshPhongMaterial({ color: COL_CEIL, shininess: 0 });
 
     // The world is unlit; the sonar rings (reveal.js) are what light surfaces.
     [...this.wallMats, this.bloodMat, this.floorMat, this.ceilMat].forEach(installReveal);
@@ -605,21 +605,48 @@ export class World {
   }
 
   // Push a circle (the player) out of any wall box it overlaps, on the XZ plane.
+  // Relax out of any overlapping walls, iterating until nothing overlaps (or we
+  // give up). This MUST settle: it runs every frame even when standing still, so
+  // if it never reaches a resting state the player slowly slides along the
+  // geometry on their own — which is what made the distance counter creep up
+  // while stationary. Wall boxes genuinely overlap at grid intersections, so
+  // being pushed by two at once is normal and has to converge.
   collide(pos, radius) {
-    for (const chunk of this.chunks.values()) {
-      for (const w of chunk.bounds) {
-        const nx = Math.max(w.minX, Math.min(pos.x, w.maxX));
-        const nz = Math.max(w.minZ, Math.min(pos.z, w.maxZ));
-        const dx = pos.x - nx;
-        const dz = pos.z - nz;
-        const d2 = dx * dx + dz * dz;
-        if (d2 < radius * radius && d2 > 1e-8) {
-          const d = Math.sqrt(d2);
-          const push = (radius - d) / d;
-          pos.x += dx * push;
-          pos.z += dz * push;
+    const r2 = radius * radius;
+    for (let iter = 0; iter < 4; iter++) {
+      let overlapped = false;
+      for (const chunk of this.chunks.values()) {
+        for (const w of chunk.bounds) {
+          const nx = Math.max(w.minX, Math.min(pos.x, w.maxX));
+          const nz = Math.max(w.minZ, Math.min(pos.z, w.maxZ));
+          const dx = pos.x - nx;
+          const dz = pos.z - nz;
+          const d2 = dx * dx + dz * dz;
+          if (d2 >= r2) continue;
+          overlapped = true;
+
+          if (d2 > 1e-6) {
+            const d = Math.sqrt(d2);
+            const push = (radius - d) / d;
+            pos.x += dx * push;
+            pos.z += dz * push;
+          } else {
+            // Dead centre inside the box: the push direction is numerically
+            // meaningless there, so eject along the SHALLOWEST axis instead.
+            // (The old code just skipped this case, leaving you stuck inside.)
+            const left = pos.x - w.minX;
+            const right = w.maxX - pos.x;
+            const back = pos.z - w.minZ;
+            const front = w.maxZ - pos.z;
+            const m = Math.min(left, right, back, front);
+            if (m === left) pos.x = w.minX - radius;
+            else if (m === right) pos.x = w.maxX + radius;
+            else if (m === back) pos.z = w.minZ - radius;
+            else pos.z = w.maxZ + radius;
+          }
         }
       }
+      if (!overlapped) return; // settled
     }
   }
 }

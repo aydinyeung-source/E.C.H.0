@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.18.0";
+const VERSION = "v2.19.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -48,6 +48,8 @@ const mcEat = document.getElementById("mcEat");
 const mcPause = document.getElementById("mcPause");
 const hotbarEl = document.getElementById("hotbar");
 const wardFlash = document.getElementById("wardFlash");
+const torchBar = document.getElementById("torchBar");
+const torchFill = document.getElementById("torchFill");
 const settingsToggle = document.getElementById("settingsToggle");
 const settingsBody = document.getElementById("settingsBody");
 
@@ -132,8 +134,10 @@ function setPlaying(v) {
     player.touchFwd = 0;
     player.touchStrafe = 0;
   }
+  if (!v) torchOn = false; // don't leave the beam burning on a menu
   energyBar.classList.toggle("hidden", !v);
   hotbarEl.classList.toggle("hidden", !v);
+  torchBar.classList.toggle("hidden", !v);
   radarCanvas.classList.toggle("hidden", !v);
   mobileControls.classList.toggle("hidden", !(v && deviceMode === "mobile"));
 }
@@ -149,6 +153,27 @@ const SONAR_COST = 4;  // energy per sonar reveal
 // Crucifix: your only defence. Brandishing it breaks everything nearby off you.
 const WARD_RADIUS = 14; // metres
 const WARD_TIME = 7;    // seconds they flee for
+
+// Torch: shows you a slice of what's ahead — but shine it at something and you
+// ENRAGE it. Runs on batteries, which are their own pickup.
+const TORCH_MAX = 100;
+const TORCH_DRAIN = 5;      // battery per second while lit
+const BATTERY_CHARGE = 45;  // battery restored per cell
+const TORCH_RANGE = 24;     // how far the beam reaches
+const TORCH_ANGLE = 0.38;   // half-angle of the beam (radians, ~22deg)
+const ENRAGE_TIME = 10;     // seconds an entity stays enraged after being lit
+let torchOn = false;
+let torchBattery = 0;
+
+const torchLight = new THREE.SpotLight(0xfff0d0, 3.4, TORCH_RANGE + 4, TORCH_ANGLE, 0.5, 1.1);
+torchLight.visible = false;
+scene.add(torchLight);
+scene.add(torchLight.target);
+const _fwd = new THREE.Vector3();
+
+function hasItem(type) {
+  return hotbar.some((s) => s.type === type && s.count > 0);
+}
 let energy = ENERGY_MAX; // drained by running/sonar, refilled by eating
 
 // --- Hotbar inventory (Minecraft-style) -------------------------------------
@@ -189,6 +214,8 @@ function renderHotbar() {
     const icon = el.querySelector(".slot-icon");
     icon.classList.toggle("meat", filled && item.type === "meat");
     icon.classList.toggle("crucifix", filled && item.type === "crucifix");
+    icon.classList.toggle("torch", filled && item.type === "torch");
+    icon.classList.toggle("battery", filled && item.type === "battery");
     el.querySelector(".slot-count").textContent = filled && item.count > 1 ? item.count : "";
   }
 }
@@ -254,6 +281,16 @@ function useSelected() {
     if (energy >= ENERGY_MAX) return; // refuse, so food isn't wasted
     consumeSelected();
     energy = Math.min(ENERGY_MAX, energy + MEAT_ENERGY);
+    audio.pickup();
+  } else if (s.type === "torch") {
+    // Not consumed — it's a tool. Toggles, and only lights if it has charge.
+    if (!torchOn && torchBattery <= 0) return;
+    torchOn = !torchOn;
+    audio.pickup();
+  } else if (s.type === "battery") {
+    if (torchBattery >= TORCH_MAX) return; // don't waste a cell
+    consumeSelected();
+    torchBattery = Math.min(TORCH_MAX, torchBattery + BATTERY_CHARGE);
     audio.pickup();
   } else if (s.type === "crucifix") {
     consumeSelected();
@@ -325,6 +362,8 @@ function startRun(rawSeedText, label, isDaily) {
   energy = ENERGY_MAX;
   runMode = false;
   resetHotbar();
+  torchOn = false;
+  torchBattery = 0;
   updateRunButton();
   radar.clear();
   audio.init(); // this is called from a click, so audio is allowed to start
@@ -577,6 +616,44 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// --- Torch ------------------------------------------------------------------
+// The beam lights a cone of the world ahead (a real SpotLight, so it falls on
+// the walls properly). Anything caught IN the beam — inside the cone, in range,
+// and with a clear sightline — is enraged: it now knows exactly where you are,
+// through walls, and comes at full speed. Light is not free here.
+function updateTorch(dt) {
+  if (torchOn) {
+    torchBattery -= TORCH_DRAIN * dt;
+    if (torchBattery <= 0) {
+      torchBattery = 0;
+      torchOn = false; // died on you
+    }
+  }
+  torchLight.visible = torchOn;
+  if (!torchOn) return;
+
+  _fwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  torchLight.position.copy(camera.position);
+  torchLight.target.position.copy(camera.position).addScaledVector(_fwd, 10);
+  torchLight.target.updateMatrixWorld();
+
+  // Who's in the beam? Compare against the beam axis flattened onto the floor.
+  const fx = _fwd.x;
+  const fz = _fwd.z;
+  const flen = Math.hypot(fx, fz) || 1;
+  const cosLimit = Math.cos(TORCH_ANGLE);
+  for (const e of entities.entities) {
+    const dx = e.x - player.pos.x;
+    const dz = e.z - player.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d > TORCH_RANGE || d < 0.001) continue;
+    const facing = (dx / d) * (fx / flen) + (dz / d) * (fz / flen);
+    if (facing < cosLimit) continue; // outside the cone
+    if (world.segmentBlocked(player.pos.x, player.pos.z, e.x, e.z)) continue; // wall in the way
+    entities.enrage(e, ENRAGE_TIME);
+  }
+}
+
 // --- Distance tracking ------------------------------------------------------
 // "Distance explored" = furthest straight-line distance reached from spawn.
 function updateDistance() {
@@ -614,6 +691,7 @@ function loop(now) {
       energy = Math.min(ENERGY_MAX, energy + WALK_REGEN * dt);
     }
 
+    updateTorch(dt);
     if (entities.update(dt, player.pos, run.maxDistance, world)) die();
 
     // Pick up anything within reach that we have room for (used later, on F).
@@ -621,6 +699,10 @@ function loop(now) {
     for (const type of taken) addItem(type, 1);
     if (taken.length) audio.pickup();
     energyFill.style.width = (energy / ENERGY_MAX) * 100 + "%";
+    // The torch gauge only appears once you actually own a torch.
+    const showTorch = hasItem("torch");
+    torchBar.classList.toggle("hidden", !showTorch);
+    if (showTorch) torchFill.style.width = (torchBattery / TORCH_MAX) * 100 + "%";
 
     // 3D spatial audio: position each entity's panner, muffle it through walls,
     // and schedule its (spatialised) footsteps.

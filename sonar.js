@@ -9,8 +9,8 @@
 
 import { revealUniforms, ECHO_MAX, GLOW_TIME, WAVE_SPEED } from "./reveal.js";
 
-const WAVES_PER_CLICK = 3; // a click sends 3 rings...
-const WAVE_GAP = 0.12;     // ...staggered this many seconds apart
+const WAVES_PER_CLICK = 1; // one ring per click
+const WAVE_GAP = 0.12;     // (stagger, only relevant if >1 ring)
 const REACH = 46;          // track a ring until its front passes this far
 const LIFETIME = GLOW_TIME + REACH / WAVE_SPEED + 0.5; // keep alive until glow fades
 

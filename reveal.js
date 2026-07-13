@@ -53,32 +53,43 @@ export function installReveal(material) {
          vEchoWorld = ( modelMatrix * echoWP ).xyz;`
       );
 
-    // Fragment: add the ring glow directly to the final colour. The loop is
-    // unrolled (constant indices) — dynamic uniform-array indexing fails on many
-    // drivers. Literal 12 must match ECHO_MAX. Temporaries declared once so the
-    // unrolled copies don't redeclare them.
+    // Fragment: reveal the surface's OWN colour/texture (tinted green) where a
+    // ring passes — not flat green. `echoSurface` captures the material's albedo
+    // right after the texture is sampled, then we add it back at the end scaled
+    // by the ring glow. The loop is unrolled (constant indices) — dynamic
+    // uniform-array indexing fails on many drivers. Literal 12 must match
+    // ECHO_MAX. Temporaries declared once so unrolled copies don't redeclare.
     shader.fragmentShader =
       `uniform vec4 uWaves[${ECHO_MAX}];
        uniform float uWaveOn[${ECHO_MAX}];
        uniform float uWaveSpeed;
        uniform float uGlowTime;
        uniform vec3 uEchoColor;
-       varying vec3 vEchoWorld;\n` +
-      shader.fragmentShader.replace(
-        "#include <dithering_fragment>",
-        `{
-          float echoR = 0.0;
-          float echoTsp = 0.0;
-          #pragma unroll_loop_start
-          for ( int i = 0; i < 12; i ++ ) {
-            echoTsp = uWaves[ i ].w - distance( vEchoWorld, uWaves[ i ].xyz ) / uWaveSpeed;
-            echoR += clamp( 1.0 - echoTsp / uGlowTime, 0.0, 1.0 ) * step( 0.0, echoTsp ) * uWaveOn[ i ];
+       varying vec3 vEchoWorld;
+       vec3 echoSurface = vec3( 0.0 );\n` +
+      shader.fragmentShader
+        .replace(
+          "#include <map_fragment>",
+          `#include <map_fragment>
+           echoSurface = diffuseColor.rgb;` // remember the real surface colour
+        )
+        .replace(
+          "#include <dithering_fragment>",
+          `{
+            float echoR = 0.0;
+            float echoTsp = 0.0;
+            #pragma unroll_loop_start
+            for ( int i = 0; i < 12; i ++ ) {
+              echoTsp = uWaves[ i ].w - distance( vEchoWorld, uWaves[ i ].xyz ) / uWaveSpeed;
+              echoR += clamp( 1.0 - echoTsp / uGlowTime, 0.0, 1.0 ) * step( 0.0, echoTsp ) * uWaveOn[ i ];
+            }
+            #pragma unroll_loop_end
+            // Peak ~50% brightness (the 0.5), then fades out with echoR.
+            echoR = clamp( echoR, 0.0, 1.0 );
+            gl_FragColor.rgb += ( echoSurface * 0.5 + uEchoColor * 0.22 ) * echoR;
           }
-          #pragma unroll_loop_end
-          gl_FragColor.rgb += uEchoColor * clamp( echoR, 0.0, 1.6 );
-        }
-        #include <dithering_fragment>`
-      );
+          #include <dithering_fragment>`
+        );
   };
   material.customProgramCacheKey = () => "echoRing";
   material.needsUpdate = true;

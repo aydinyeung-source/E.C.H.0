@@ -50,11 +50,15 @@ export class Radar {
         }
 
         const revealAt = now + d / WAVE_SPEED;
+        // A broken window (entityOnly) is drawn in a different colour — it's a
+        // hole you can dive through and they can't follow, so it's worth being
+        // able to spot one on the dish.
+        const win = !!w.entityOnly;
         // Represent the wall box as a line along its long axis.
         if (w.maxX - w.minX >= w.maxZ - w.minZ) {
-          this.blips.push({ wall: true, x1: w.minX, z1: cz, x2: w.maxX, z2: cz, revealAt });
+          this.blips.push({ win, x1: w.minX, z1: cz, x2: w.maxX, z2: cz, revealAt });
         } else {
-          this.blips.push({ wall: true, x1: cx, z1: w.minZ, x2: cx, z2: w.maxZ, revealAt });
+          this.blips.push({ win, x1: cx, z1: w.minZ, x2: cx, z2: w.maxZ, revealAt });
         }
       }
     }
@@ -102,8 +106,11 @@ export class Radar {
       }
       const p1 = this._toRadar(b.x1, b.z1, playerPos, sin, cos);
       const p2 = this._toRadar(b.x2, b.z2, playerPos, sin, cos);
-      g.strokeStyle = `rgba(57, 255, 20, ${alpha * 0.8})`;
-      g.lineWidth = 1.5;
+      // Windows read as a bright cyan gap in the green walls — an escape route.
+      g.strokeStyle = b.win
+        ? `rgba(90, 220, 255, ${alpha})`
+        : `rgba(57, 255, 20, ${alpha * 0.8})`;
+      g.lineWidth = b.win ? 2.5 : 1.5;
       g.beginPath();
       g.moveTo(p1.x, p1.y);
       g.lineTo(p2.x, p2.y);

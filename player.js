@@ -139,7 +139,8 @@ export class Player {
     }
 
     this.pos.y = EYE_HEIGHT;
-    world.collide(this.pos, PLAYER_RADIUS);
+    // `true` = you can squeeze through a broken window. The entities can't.
+    world.collide(this.pos, PLAYER_RADIUS, true);
   }
 
   _apply() {

@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.24.0";
+const VERSION = "v2.25.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -411,9 +411,9 @@ function startRun(rawSeedText, label, isDaily) {
   world.update(player.pos); // rebuild chunks around spawn from the new seed
   // The maze is already inhabited when you get there — they're out in it from the
   // start, wandering, well beyond sight. They just don't know you exist yet.
-  entities.reset(player.pos);
+  entities.reset(player.pos, world);
   audio.resetVoices(); // drop spatial voices from the previous run
-  pickups.reset(player.pos);
+  pickups.reset(); // loot lives in the chunks now, not in a pool around you
   seedTag.textContent = (label ? label + " · " : "") + "SEED " + run.seed;
 
   // PC goes through pointer lock (which starts play on lock); mobile starts now.
@@ -738,7 +738,8 @@ function loop(now) {
   world.update(player.pos);
   world.animate(now * 0.001); // flickering lights
   sonar.update(dt);
-  pickups.animate(now * 0.001); // throbbing meat
+  pickups.sync(world); // stream chunk loot in/out with its chunk
+  pickups.animate(now * 0.001);
   updateDistance();
 
   // Entities only hunt while actively playing (and alive).

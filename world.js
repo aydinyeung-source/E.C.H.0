@@ -37,6 +37,25 @@ const WALL_T = 0.3;      // wall thickness
 const STRAIGHT_BIAS = 0.85;
 const DOOR_PROB = 0.3;
 const BLOOD_CHANCE = 0.03; // fraction of individual walls that carry bloody writing
+
+// BROKEN WINDOWS. Each wall independently has this chance of being smashed out:
+// two posts and a lintel with a floor-level gap. YOU can squeeze through it. The
+// entities CANNOT — they're blocked, and their pathfinder won't even consider it.
+// It's a hail mary: dive through a window and whatever is chasing you has to go
+// the long way round.
+//
+// Note this is a per-wall roll with no cap, so a corridor might have two windows
+// or none — and yes, there is a vanishingly small but real chance that every wall
+// in a given maze is windowed. That's intentional; the odds are the odds.
+const WINDOW_CHANCE = 0.07;
+const WINDOW_OPEN = 0.5;   // fraction of the wall that's the gap
+const WINDOW_H = 2.2;      // height of the opening (lintel sits above it)
+
+// Loot lying in the world, per chunk. These are placed IN the level, not spawned
+// around you — an abandoned place with things left in it.
+const CHUNK_MEAT_CHANCE = 0.15;
+const CHUNK_TORCH_CHANCE = 0.05;
+const CHUNK_CRUCIFIX_CHANCE = 0.05;
 const CHUNK_CELLS = 6;   // cells per chunk edge (bigger = longer unbroken halls)
 const CHUNK_SIZE = CELL * CHUNK_CELLS;
 // Chunks are 6x6 cells (36u) now, so a radius of 1 already keeps 36-72u of world
@@ -318,6 +337,36 @@ function wallPresent(type, i, j) {
   return true;
 }
 
+// Is this wall smashed out into a window? Deterministic per wall.
+function isWindow(type, i, j) {
+  return hash2(i, j, type === 0 ? 611 : 711) < WINDOW_CHANCE;
+}
+
+// What loot is lying in this chunk. Deterministic (and seeded), so the daily
+// challenge gives everyone the same supplies in the same places.
+export function chunkItems(cx, cy) {
+  const items = [];
+  const rolls = [
+    ["meat", CHUNK_MEAT_CHANCE, 21],
+    ["torch", CHUNK_TORCH_CHANCE, 22],
+    ["crucifix", CHUNK_CRUCIFIX_CHANCE, 23],
+  ];
+  for (const [type, chance, salt] of rolls) {
+    if (hash2(cx, cy, salt) >= chance) continue;
+    // Drop it in a deterministic cell of this chunk. Every cell is walkable
+    // (the maze carves passages, it never seals a cell), so any cell will do.
+    const i = cx * CHUNK_CELLS + Math.floor(hash2(cx, cy, salt + 100) * CHUNK_CELLS);
+    const j = cy * CHUNK_CELLS + Math.floor(hash2(cx, cy, salt + 200) * CHUNK_CELLS);
+    items.push({
+      id: `${type}:${cx}:${cy}`, // stable id, so a collected item stays collected
+      type,
+      x: (i + 0.5) * CELL,
+      z: (j + 0.5) * CELL,
+    });
+  }
+  return items;
+}
+
 // Deterministic per-wall texture variant (weighted), so adjacent walls differ.
 function wallVariant(type, i, j) {
   let r = hash2(i, j, type === 0 ? 313 : 414);
@@ -357,6 +406,72 @@ export class World {
     this.panelMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
   }
 
+  // One wall edge. Normally a single solid box. But ~7% of the time it's a
+  // BROKEN WINDOW: two posts and a lintel with a floor-level gap.
+  //
+  // The trick is that the geometry, the collision and the sightlines all have to
+  // agree about what a window is:
+  //   * the POSTS are solid to everyone,
+  //   * the GAP is tagged `entityOnly` — the player's collision ignores it (you
+  //     squeeze through), the entities' collision does not (they're stopped),
+  //   * the gap is ALSO ignored by segmentBlocked, so you can see and be seen
+  //     and heard through a smashed window — it's a hole, not a mirror,
+  //   * and because the wall still "exists" to wallPresent(), the entity
+  //     pathfinder won't even try to route through it. It goes the long way.
+  _buildWall(type, i, j, list, bounds) {
+    const horiz = type === 0;
+    const cx = horiz ? (i + 0.5) * CELL : i * CELL;
+    const cz = horiz ? j * CELL : (j + 0.5) * CELL;
+    const halfT = WALL_T / 2;
+
+    if (!isWindow(type, i, j)) {
+      list.push({
+        px: cx, py: WALL_H / 2, pz: cz,
+        sx: horiz ? CELL : WALL_T,
+        sy: WALL_H,
+        sz: horiz ? WALL_T : CELL,
+      });
+      bounds.push(
+        horiz
+          ? { minX: i * CELL, maxX: (i + 1) * CELL, minZ: cz - halfT, maxZ: cz + halfT }
+          : { minX: cx - halfT, maxX: cx + halfT, minZ: j * CELL, maxZ: (j + 1) * CELL }
+      );
+      return;
+    }
+
+    const openW = CELL * WINDOW_OPEN;
+    const postW = (CELL - openW) / 2;
+    const lintelH = WALL_H - WINDOW_H;
+
+    if (horiz) {
+      const x0 = i * CELL;
+      const x1 = (i + 1) * CELL;
+      list.push({ px: x0 + postW / 2, py: WALL_H / 2, pz: cz, sx: postW, sy: WALL_H, sz: WALL_T });
+      list.push({ px: x1 - postW / 2, py: WALL_H / 2, pz: cz, sx: postW, sy: WALL_H, sz: WALL_T });
+      list.push({ px: cx, py: WINDOW_H + lintelH / 2, pz: cz, sx: openW, sy: lintelH, sz: WALL_T });
+
+      bounds.push({ minX: x0, maxX: x0 + postW, minZ: cz - halfT, maxZ: cz + halfT });
+      bounds.push({ minX: x1 - postW, maxX: x1, minZ: cz - halfT, maxZ: cz + halfT });
+      bounds.push({
+        minX: x0 + postW, maxX: x1 - postW, minZ: cz - halfT, maxZ: cz + halfT,
+        entityOnly: true, // the gap: they can't fit, you can
+      });
+    } else {
+      const z0 = j * CELL;
+      const z1 = (j + 1) * CELL;
+      list.push({ px: cx, py: WALL_H / 2, pz: z0 + postW / 2, sx: WALL_T, sy: WALL_H, sz: postW });
+      list.push({ px: cx, py: WALL_H / 2, pz: z1 - postW / 2, sx: WALL_T, sy: WALL_H, sz: postW });
+      list.push({ px: cx, py: WINDOW_H + lintelH / 2, pz: cz, sx: WALL_T, sy: lintelH, sz: openW });
+
+      bounds.push({ minX: cx - halfT, maxX: cx + halfT, minZ: z0, maxZ: z0 + postW });
+      bounds.push({ minX: cx - halfT, maxX: cx + halfT, minZ: z1 - postW, maxZ: z1 });
+      bounds.push({
+        minX: cx - halfT, maxX: cx + halfT, minZ: z0 + postW, maxZ: z1 - postW,
+        entityOnly: true,
+      });
+    }
+  }
+
   // Build every mesh for one chunk and return its group + collision bounds.
   _buildChunk(cx, cy) {
     const group = new THREE.Group();
@@ -374,19 +489,13 @@ export class World {
       for (let dj = 0; dj < CHUNK_CELLS; dj++) {
         const i = i0 + di;
         const j = j0 + dj;
-        if (wallPresent(0, i, j)) {
-          // South edge: spans x across the cell, thin in z.
-          const inst = { px: (i + 0.5) * CELL, pz: j * CELL, sx: CELL, sz: WALL_T };
-          if (hash2(i, j, 811) < BLOOD_CHANCE) bloodInsts.push(inst);
-          else buckets[wallVariant(0, i, j)].push(inst);
-          bounds.push({ minX: i * CELL, maxX: (i + 1) * CELL, minZ: j * CELL - WALL_T / 2, maxZ: j * CELL + WALL_T / 2 });
-        }
-        if (wallPresent(1, i, j)) {
-          // West edge: spans z across the cell, thin in x.
-          const inst = { px: i * CELL, pz: (j + 0.5) * CELL, sx: WALL_T, sz: CELL };
-          if (hash2(i, j, 911) < BLOOD_CHANCE) bloodInsts.push(inst);
-          else buckets[wallVariant(1, i, j)].push(inst);
-          bounds.push({ minX: i * CELL - WALL_T / 2, maxX: i * CELL + WALL_T / 2, minZ: j * CELL, maxZ: (j + 1) * CELL });
+        for (const type of [0, 1]) {
+          if (!wallPresent(type, i, j)) continue;
+          const list =
+            hash2(i, j, type === 0 ? 811 : 911) < BLOOD_CHANCE
+              ? bloodInsts
+              : buckets[wallVariant(type, i, j)];
+          this._buildWall(type, i, j, list, bounds);
         }
       }
     }
@@ -400,8 +509,8 @@ export class World {
       mesh.frustumCulled = false;
       for (let k = 0; k < list.length; k++) {
         const w = list[k];
-        _p.set(w.px, WALL_H / 2, w.pz);
-        _s.set(w.sx, WALL_H, w.sz);
+        _p.set(w.px, w.py, w.pz);
+        _s.set(w.sx, w.sy, w.sz);
         _m.compose(_p, _q.identity(), _s);
         mesh.setMatrixAt(k, _m);
       }
@@ -570,6 +679,10 @@ export class World {
     const dz = z2 - z1;
     for (const chunk of this.chunks.values()) {
       for (const w of chunk.bounds) {
+        // A smashed window is a HOLE: you can see, be seen, and be heard through
+        // it. It only stops bodies, not light or sound.
+        if (w.entityOnly) continue;
+
         let tmin = 0;
         let tmax = 1;
         let hit = true;
@@ -611,12 +724,16 @@ export class World {
   // geometry on their own — which is what made the distance counter creep up
   // while stationary. Wall boxes genuinely overlap at grid intersections, so
   // being pushed by two at once is normal and has to converge.
-  collide(pos, radius) {
+  // `passWindows` is what makes a broken window a player-only escape route: the
+  // player calls this with true and slips through the gap; entities call it with
+  // false (the default) and the gap stops them dead.
+  collide(pos, radius, passWindows = false) {
     const r2 = radius * radius;
     for (let iter = 0; iter < 4; iter++) {
       let overlapped = false;
       for (const chunk of this.chunks.values()) {
         for (const w of chunk.bounds) {
+          if (passWindows && w.entityOnly) continue; // squeeze through the window
           const nx = Math.max(w.minX, Math.min(pos.x, w.maxX));
           const nz = Math.max(w.minZ, Math.min(pos.z, w.maxZ));
           const dx = pos.x - nx;

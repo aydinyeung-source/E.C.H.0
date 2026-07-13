@@ -65,6 +65,7 @@ const BASE_POP = 2;
 const MAX_POP = 4;
 const POP_MIN_DIST = 30;            // always well beyond SIGHT_RANGE
 const POP_MAX_DIST = 50;
+const FOG_HIDE_DIST = 42;           // past here the fog has eaten everything anyway
 const MIN_SEPARATION = 22;
 const DESPAWN = 60;                 // drop ones that fall far behind, then re-place
 
@@ -85,12 +86,12 @@ export class EntitySystem {
   }
 
   // Wipe and re-populate the world around the spawn point.
-  reset(playerPos) {
+  reset(playerPos, world) {
     for (const e of this.entities) this.scene.remove(e.group);
     this.entities = [];
     this.nearest = Infinity;
-    if (playerPos) {
-      for (let i = 0; i < BASE_POP; i++) this._place(playerPos);
+    if (playerPos && world) {
+      for (let i = 0; i < BASE_POP; i++) this._place(playerPos, world);
     }
   }
 
@@ -132,15 +133,22 @@ export class EntitySystem {
     entity.enrageTimer = Math.max(entity.enrageTimer, duration);
   }
 
-  // Put one out in the world: far away, out of sight, clear of the others.
-  _place(playerPos) {
-    let x = 0;
-    let z = 0;
-    for (let attempt = 0; attempt < 14; attempt++) {
+  // Put one out in the world. It must be far away, clear of the others, and —
+  // critically — SOMEWHERE YOU CANNOT SEE. You must never watch one appear: it's
+  // unfair, it wrecks a run, and it destroys the fiction that they were already
+  // here. A spot only counts as hidden if a wall stands between you and it, or
+  // it's so far out that the fog has swallowed it entirely.
+  //
+  // If no attempt finds a hidden spot, we place NOTHING and try again next frame.
+  // Being one entity short for a moment is always better than popping one into
+  // view.
+  _place(playerPos, world) {
+    for (let attempt = 0; attempt < 24; attempt++) {
       const angle = Math.random() * Math.PI * 2;
       const dist = POP_MIN_DIST + Math.random() * (POP_MAX_DIST - POP_MIN_DIST);
-      x = playerPos.x + Math.cos(angle) * dist;
-      z = playerPos.z + Math.sin(angle) * dist;
+      const x = playerPos.x + Math.cos(angle) * dist;
+      const z = playerPos.z + Math.sin(angle) * dist;
+
       let clear = true;
       for (const other of this.entities) {
         if (Math.hypot(x - other.x, z - other.z) < MIN_SEPARATION) {
@@ -148,9 +156,19 @@ export class EntitySystem {
           break;
         }
       }
-      if (clear) break;
-    }
+      if (!clear) continue;
 
+      const behindWall = world.segmentBlocked(playerPos.x, playerPos.z, x, z);
+      const lostToFog = dist > FOG_HIDE_DIST;
+      if (!behindWall && !lostToFog) continue; // you'd have SEEN that. try again.
+
+      this._spawnAt(x, z);
+      return true;
+    }
+    return false; // nowhere hidden right now — leave it, we'll retry next frame
+  }
+
+  _spawnAt(x, z) {
     const group = new THREE.Group();
     const body = new THREE.Mesh(this.bodyGeo, this.bodyMat);
     body.position.y = 0.75;
@@ -244,7 +262,7 @@ export class EntitySystem {
     // Keep the world populated. New ones appear far away and out of sight — the
     // world is stocked, they are never dropped on top of you.
     const target = Math.min(BASE_POP + Math.floor(distance / 60), MAX_POP);
-    if (this.entities.length < target) this._place(playerPos);
+    if (this.entities.length < target) this._place(playerPos, world);
 
     let caught = false;
     let nearest = Infinity;

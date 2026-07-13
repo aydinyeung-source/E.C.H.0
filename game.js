@@ -17,7 +17,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.13.0";
+const VERSION = "v2.13.1";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -309,6 +309,7 @@ function startRun(rawSeedText, label, isDaily) {
 // Enter (or resume) active play. On PC this runs from the pointerlockchange
 // handler; on mobile it's called directly.
 function beginPlay() {
+  audio.init(); // idempotent; also resumes the context if it got suspended
   startOverlay.classList.add("hidden");
   gameOverOverlay.classList.add("hidden");
   pauseOverlay.classList.add("hidden");

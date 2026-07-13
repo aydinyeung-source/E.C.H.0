@@ -42,6 +42,14 @@ export class AudioSystem {
     this.ctx = null;
     this.master = null;
     this.voices = new Map(); // entity object -> { panner, filter, stepTimer }
+
+    // Safety net: browsers can leave (or re-put) the context in a suspended
+    // state, which silences everything. Any user gesture resumes it.
+    const resume = () => {
+      if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
+    };
+    window.addEventListener("pointerdown", resume);
+    window.addEventListener("keydown", resume);
   }
 
   init() {
@@ -107,8 +115,13 @@ export class AudioSystem {
     const panner = this.ctx.createPanner();
     panner.panningModel = "HRTF";
     panner.distanceModel = "exponential";
-    panner.refDistance = 1;
-    panner.rolloffFactor = 1.6;
+    // Exponential gain is (max(d, refDistance) / refDistance) ^ -rolloffFactor.
+    // refDistance MUST NOT be tiny: with refDistance=1 and rolloff=1.6, a sound
+    // 10m away lands at 10^-1.6 ~= 0.025 (-32dB) — i.e. completely inaudible,
+    // which silenced every entity sound. refDistance 5 = full volume out to 5m,
+    // then a gentle, natural falloff (half volume at 10m, ~1/3 at 16m).
+    panner.refDistance = 5;
+    panner.rolloffFactor = 1.0;
     panner.maxDistance = 60;
     return panner;
   }

@@ -1,8 +1,5 @@
 // world.js
 // -----------------------------------------------------------------------------
-import { installReveal } from "./reveal.js";
-
-// -----------------------------------------------------------------------------
 // Chunk-based, infinite Backrooms generator.
 //
 // The world is an endless grid of CELLs. CELLs are grouped into square CHUNKs
@@ -177,10 +174,6 @@ export class World {
     this.bloodMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("blood", 0) });
     this.floorMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeFloorTexture() });
     this.ceilMat = new THREE.MeshLambertMaterial({ color: COL_CEIL });
-
-    // The world is unlit; the sonar wavefront shader is what makes surfaces
-    // visible (and gives them the glow-in-the-dark fade).
-    [...this.wallMats, this.bloodMat, this.floorMat, this.ceilMat].forEach(installReveal);
     this.tileGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
     this.panelGeo = new THREE.PlaneGeometry(CELL * 0.62, CELL * 0.62);
     // MeshBasicMaterial ignores scene lighting, so panels glow on their own even

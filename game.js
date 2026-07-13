@@ -14,7 +14,7 @@ import { AudioSystem } from "./audio.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.6.2";
+const VERSION = "v2.6.3";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -51,7 +51,7 @@ const camera = new THREE.PerspectiveCamera(
 // --- Subsystems -------------------------------------------------------------
 const world = new World(scene);
 const player = new Player(camera, canvas, SPAWN);
-const sonar = new SonarSystem();
+const sonar = new SonarSystem(scene);
 const entities = new EntitySystem(scene);
 const audio = new AudioSystem();
 

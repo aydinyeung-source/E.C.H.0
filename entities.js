@@ -29,7 +29,8 @@ const REPATH_INTERVAL = 0.5;        // seconds between A* recomputes while blind
 const SPAWN_MIN = 14;
 const SPAWN_MAX = 24;
 const DESPAWN = 52;                 // remove if it drifts this far from the player
-const FIRST_DELAY = 7;              // seconds of grace at the start of a run
+const FIRST_DELAY = 10;             // seconds of grace at the start of a run
+const SPAWN_MIN_DISTANCE = 12;      // ...and nothing spawns until you've ventured out
 const MAX_CAP = 6;
 
 const _v = new THREE.Vector3(); // scratch for wall collision
@@ -85,7 +86,7 @@ export class EntitySystem {
     this.scene.add(group);
 
     // Target starts at the spawn spot: it lurks there until it sees or hears you.
-    this.entities.push({ group, x, z, tx: x, tz: z, losTimer: 0, path: null, pathTimer: 0 });
+    this.entities.push({ group, x, z, tx: x, tz: z, losTimer: 0, path: null, pathTimer: 0, canSee: false });
   }
 
   // Returns true if an entity caught the player. `distance` (explored distance)
@@ -94,7 +95,10 @@ export class EntitySystem {
   update(dt, playerPos, distance, world) {
     this.spawnCd -= dt;
     const cap = Math.min(1 + Math.floor(distance / 30), MAX_CAP);
-    if (this.spawnCd <= 0 && this.entities.length < cap) {
+    // Nothing hunts you at the very start: you get both a grace period AND have
+    // to actually venture away from spawn before anything appears.
+    const maySpawn = this.spawnCd <= 0 && distance > SPAWN_MIN_DISTANCE;
+    if (maySpawn && this.entities.length < cap) {
       this._spawn(playerPos);
       this.spawnCd = Math.max(2.5, 6.5 - distance * 0.02);
     }
@@ -122,6 +126,7 @@ export class EntitySystem {
       // --- Sight ------------------------------------------------------------
       // A clear sightline means it sees you and locks onto your real position.
       const canSee = !world.segmentBlocked(e.x, e.z, playerPos.x, playerPos.z);
+      e.canSee = canSee; // the radar shows a live red dot for anything watching you
       if (canSee) {
         e.tx = playerPos.x;
         e.tz = playerPos.z;

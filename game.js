@@ -11,12 +11,12 @@ import { Player, BASE_SENSITIVITY } from "./player.js";
 import { SonarSystem } from "./sonar.js";
 import { EntitySystem } from "./entities.js";
 import { AudioSystem } from "./audio.js";
-import { Pickups } from "./pickups.js";
+import { Pickups, MEAT_ENERGY } from "./pickups.js";
 import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.10.0";
+const VERSION = "v2.11.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -44,7 +44,9 @@ const deviceSelect = document.getElementById("deviceMode");
 const mobileControls = document.getElementById("mobileControls");
 const mcRun = document.getElementById("mcRun");
 const mcPing = document.getElementById("mcPing");
+const mcEat = document.getElementById("mcEat");
 const mcPause = document.getElementById("mcPause");
+const backpackTag = document.getElementById("backpackTag");
 
 // --- Three.js core ----------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -120,15 +122,32 @@ function setPlaying(v) {
     player.touchStrafe = 0;
   }
   energyBar.classList.toggle("hidden", !v);
+  backpackTag.classList.toggle("hidden", !v);
   radarCanvas.classList.toggle("hidden", !v);
   mobileControls.classList.toggle("hidden", !(v && deviceMode === "mobile"));
 }
-let energy = 100;    // 0..ENERGY_MAX; drained by running/sonar, refilled by meat
+let energy = 100;    // 0..ENERGY_MAX; drained by running/sonar, refilled by eating
 let runMode = false; // toggled with Q
+let backpack = 0;    // meat carried; eaten on demand (F), not on pickup
 
 const ENERGY_MAX = 100;
 const RUN_DRAIN = 12; // energy per second while running and moving
 const SONAR_COST = 5; // energy per sonar reveal
+const BACKPACK_MAX = 5;
+
+// Eat one meat from the backpack. Refuses if the pack is empty or you're full,
+// so you can't waste food.
+function eat() {
+  if (!playing || backpack <= 0 || energy >= ENERGY_MAX) return;
+  backpack--;
+  energy = Math.min(ENERGY_MAX, energy + MEAT_ENERGY);
+  audio.pickup();
+}
+
+function updateRunButton() {
+  mcRun.textContent = runMode ? "STOP RUNNING" : "RUN";
+  mcRun.classList.toggle("active", runMode);
+}
 
 // Prime a random world behind the overlay so the scene isn't empty on load.
 setWorldSeed(parseSeed(""));
@@ -181,6 +200,8 @@ function startRun(rawSeedText, label, isDaily) {
   heartTimer = 0;
   energy = ENERGY_MAX;
   runMode = false;
+  backpack = 0;
+  updateRunButton();
   radar.clear();
   audio.init(); // this is called from a click, so audio is allowed to start
   gameOverOverlay.classList.add("hidden");
@@ -191,7 +212,6 @@ function startRun(rawSeedText, label, isDaily) {
   world.update(player.pos); // rebuild chunks around spawn from the new seed
   entities.reset();
   pickups.reset(player.pos);
-  mcRun.classList.remove("active");
   seedTag.textContent = (label ? label + " · " : "") + "SEED " + run.seed;
 
   // PC goes through pointer lock (which starts play on lock); mobile starts now.
@@ -305,9 +325,10 @@ homeButton.addEventListener("click", () => {
 
 // --- Mobile on-screen buttons -----------------------------------------------
 mcPing.addEventListener("click", () => fireSonar());
+mcEat.addEventListener("click", () => eat());
 mcRun.addEventListener("click", () => {
   runMode = !runMode;
-  mcRun.classList.toggle("active", runMode);
+  updateRunButton();
 });
 mcPause.addEventListener("click", () => {
   if (playing) showPause();
@@ -376,6 +397,11 @@ canvas.addEventListener("touchcancel", endTouch);
 // .code ("Space", "KeyE", ...). Look (mouse move) is always button-agnostic.
 const SONAR_KEY = "echo-sonar-key";
 let sonarBinding = localStorage.getItem(SONAR_KEY) || "mouse0";
+// F is now the "eat" key, so migrate anyone who had bound sonar to it.
+if (sonarBinding === "KeyF") {
+  sonarBinding = "mouse0";
+  localStorage.setItem(SONAR_KEY, sonarBinding);
+}
 sonarKeySelect.value = sonarBinding;
 sonarKeySelect.addEventListener("change", () => {
   sonarBinding = sonarKeySelect.value;
@@ -402,7 +428,11 @@ canvas.addEventListener("wheel", (e) => {
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   if (sonarBinding === e.code) fireSonar();
-  if (e.code === "KeyQ") runMode = !runMode; // toggle running
+  if (e.code === "KeyQ") { // toggle running
+    runMode = !runMode;
+    updateRunButton();
+  }
+  if (e.code === "KeyF") eat(); // eat one meat from the backpack
 });
 
 window.addEventListener("resize", () => {
@@ -446,13 +476,17 @@ function loop(now) {
 
     if (entities.update(dt, player.pos, run.maxDistance, world)) die();
 
-    // Eat any decayed meat within reach to refill energy.
-    const gained = pickups.update(player.pos);
-    if (gained > 0) {
-      energy = Math.min(ENERGY_MAX, energy + gained);
-      audio.pickup();
+    // Collect any decayed meat within reach into the backpack (eaten later, on F).
+    const free = BACKPACK_MAX - backpack;
+    if (free > 0) {
+      const got = pickups.update(player.pos, free);
+      if (got > 0) {
+        backpack += got;
+        audio.pickup();
+      }
     }
     energyFill.style.width = (energy / ENERGY_MAX) * 100 + "%";
+    backpackTag.textContent = `BACKPACK ${backpack}/${BACKPACK_MAX}`;
 
     // Footsteps: play faster and louder the closer the nearest entity is.
     const near = entities.nearest;
@@ -482,7 +516,7 @@ function loop(now) {
   }
 
   // Radar redraws every frame so blips fade on the same 15s curve as the walls.
-  radar.draw(now * 0.001, player.pos, player.yaw);
+  radar.draw(now * 0.001, player.pos, player.yaw, entities.entities);
 
   renderer.render(scene, camera);
   requestAnimationFrame(loop);

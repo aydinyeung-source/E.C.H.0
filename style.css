@@ -424,6 +424,20 @@ button.secondary:hover {
   pointer-events: none;
 }
 
+/* Backpack readout, sits just above the energy bar. */
+.hud-backpack {
+  position: fixed;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  font-size: 0.68rem;
+  letter-spacing: 0.18em;
+  color: rgba(255, 180, 120, 0.9);
+  text-shadow: 0 0 10px rgba(255, 120, 60, 0.35);
+  pointer-events: none;
+}
+
 /* Energy meter. */
 .hud-energy {
   position: fixed;
@@ -485,12 +499,13 @@ button.secondary:hover {
 .mc-btn {
   position: fixed;
   pointer-events: auto;
-  width: 78px;
-  height: 78px;
+  width: 86px;
+  height: 86px;
   border-radius: 50%;
   padding: 0;
-  font-size: 0.7rem;
-  letter-spacing: 0.12em;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  letter-spacing: 0.1em;
   color: #bfffd0;
   background: rgba(4, 20, 8, 0.55);
   border: 1px solid rgba(57, 255, 20, 0.45);
@@ -510,8 +525,13 @@ button.secondary:hover {
 }
 
 #mcRun {
-  right: 112px;
+  right: 118px;
   bottom: 210px;
+}
+
+#mcEat {
+  right: 22px;
+  bottom: 306px;
 }
 
 .mc-pause {

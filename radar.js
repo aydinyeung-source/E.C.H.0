@@ -58,12 +58,6 @@ export class Radar {
         }
       }
     }
-    for (const e of entityList) {
-      const d = Math.hypot(e.x - origin.x, e.z - origin.z);
-      if (d > RANGE) continue;
-      if (world.segmentBlocked(origin.x, origin.z, e.x, e.z)) continue; // behind a wall
-      this.blips.push({ wall: false, x1: e.x, z1: e.z, revealAt: now + d / WAVE_SPEED });
-    }
   }
 
   // World point -> radar pixel, relative to the player's position and heading
@@ -76,7 +70,8 @@ export class Radar {
     return { x: this.center + right * this.scale, y: this.center - fwd * this.scale };
   }
 
-  draw(now, playerPos, yaw) {
+  // `entityList` drives the live threat dots (see below).
+  draw(now, playerPos, yaw, entityList = []) {
     const g = this.ctx;
     const S = this.size;
     const C = this.center;
@@ -105,22 +100,29 @@ export class Radar {
         this.blips.splice(i, 1);
         continue;
       }
-      if (b.wall) {
-        const p1 = this._toRadar(b.x1, b.z1, playerPos, sin, cos);
-        const p2 = this._toRadar(b.x2, b.z2, playerPos, sin, cos);
-        g.strokeStyle = `rgba(57, 255, 20, ${alpha * 0.8})`;
-        g.lineWidth = 1.5;
-        g.beginPath();
-        g.moveTo(p1.x, p1.y);
-        g.lineTo(p2.x, p2.y);
-        g.stroke();
-      } else {
-        const p = this._toRadar(b.x1, b.z1, playerPos, sin, cos);
-        g.fillStyle = `rgba(255, 45, 45, ${alpha})`;
-        g.beginPath();
-        g.arc(p.x, p.y, 3, 0, Math.PI * 2);
-        g.fill();
-      }
+      const p1 = this._toRadar(b.x1, b.z1, playerPos, sin, cos);
+      const p2 = this._toRadar(b.x2, b.z2, playerPos, sin, cos);
+      g.strokeStyle = `rgba(57, 255, 20, ${alpha * 0.8})`;
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.moveTo(p1.x, p1.y);
+      g.lineTo(p2.x, p2.y);
+      g.stroke();
+    }
+
+    // Live threat dots: anything that currently HAS EYES ON YOU shows as a
+    // pulsing red dot — but only if it's close enough for the radar to reach it.
+    // Something watching you from 1000m away never appears.
+    for (const e of entityList) {
+      if (!e.canSee) continue;
+      const d = Math.hypot(e.x - playerPos.x, e.z - playerPos.z);
+      if (d > RANGE) continue;
+      const p = this._toRadar(e.x, e.z, playerPos, sin, cos);
+      const pulse = 0.6 + 0.4 * Math.sin(now * 8);
+      g.fillStyle = `rgba(255, 40, 40, ${pulse})`;
+      g.beginPath();
+      g.arc(p.x, p.y, 4, 0, Math.PI * 2);
+      g.fill();
     }
 
     // Player marker + heading.

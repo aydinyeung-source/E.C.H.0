@@ -45,17 +45,20 @@ export class Pickups {
     }
   }
 
-  // Eat any meat within reach; returns total energy gained this frame.
-  update(playerPos) {
-    let gained = 0;
+  // Collect any meat within reach INTO THE BACKPACK (it isn't eaten yet).
+  // `freeSlots` caps how many can be taken; with a full pack the meat is left on
+  // the ground. Returns how many were picked up this frame.
+  update(playerPos, freeSlots) {
+    let collected = 0;
     for (const it of this.items) {
+      if (collected >= freeSlots) break;
       const dx = playerPos.x - it.mesh.position.x;
       const dz = playerPos.z - it.mesh.position.z;
       if (dx * dx + dz * dz < PICK_RADIUS * PICK_RADIUS) {
-        gained += MEAT_ENERGY;
+        collected++;
         this._relocate(it, playerPos);
       }
     }
-    return gained;
+    return collected;
   }
 }

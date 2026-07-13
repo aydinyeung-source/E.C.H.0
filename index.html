@@ -15,7 +15,8 @@
     <div class="crosshair" aria-hidden="true"></div>
     <div class="distance-tag" id="distanceTag"></div>
 
-    <!-- Energy meter (shown while playing). -->
+    <!-- Backpack + energy meter (shown while playing). -->
+    <div class="hud-backpack hidden" id="backpackTag">BACKPACK 0/5</div>
     <div class="hud-energy hidden" id="energyBar">
       <span class="hud-energy-label">ENERGY</span>
       <div class="hud-energy-track"><div class="hud-energy-fill" id="energyFill"></div></div>
@@ -29,6 +30,7 @@
     <div class="mobile-controls hidden" id="mobileControls">
       <button class="mc-btn" id="mcPing" type="button">PING</button>
       <button class="mc-btn" id="mcRun" type="button">RUN</button>
+      <button class="mc-btn" id="mcEat" type="button">EAT</button>
       <button class="mc-btn mc-pause" id="mcPause" type="button">II</button>
     </div>
 
@@ -56,10 +58,9 @@
             <option value="mouse2">Right click</option>
             <option value="Space">Spacebar</option>
             <option value="KeyE">E</option>
-            <option value="KeyF">F</option>
           </select>
         </div>
-        <p class="controls-hint">WASD move · Mouse look · Esc release</p>
+        <p class="controls-hint">WASD move · Mouse look · Q run · F eat · Esc pause</p>
         <p class="panel-version">Build <strong id="versionLabel">—</strong></p>
       </div>
 

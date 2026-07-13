@@ -9,7 +9,6 @@
 import { World, SPAWN, setWorldSeed } from "./world.js";
 import { Player, BASE_SENSITIVITY } from "./player.js";
 import { SonarSystem } from "./sonar.js";
-import { WAVE_SPEED } from "./reveal.js";
 import { EntitySystem } from "./entities.js";
 import { AudioSystem } from "./audio.js";
 import { Pickups, MEAT_ENERGY } from "./pickups.js";
@@ -17,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.15.0";
+const VERSION = "v2.16.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -125,6 +124,9 @@ document.addEventListener("pointerlockerror", () => {
 function setPlaying(v) {
   playing = v;
   player.enabled = v;
+  // Room tone runs only while you're actually in there.
+  if (v) audio.startAmbience();
+  else audio.stopAmbience();
   if (!v) {
     player.touchFwd = 0;
     player.touchStrafe = 0;
@@ -508,16 +510,11 @@ function fireSonar() {
   if (!playing) return;
   sonar.pulse(player.pos);
   radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
-  entities.hearSonar(player.pos.x, player.pos.z); // the sound draws entities in
-  energy = Math.max(0, energy - SONAR_COST);      // revealing costs energy
-
-  // As the ring sweeps outward it "hits" each entity in turn — fire a sharp
-  // directional cue at that entity's exact position the moment it's reached, so
-  // you can hear precisely where it is in the dark.
-  for (const e of entities.entities) {
-    const d = Math.hypot(e.x - player.pos.x, e.z - player.pos.z);
-    audio.pingEntity(e, d / WAVE_SPEED);
-  }
+  // The sonar itself is SILENT to the player — no ping, no blip. The entities
+  // still "hear" it in-fiction and converge on you; you just don't get an audio
+  // cue back. All you have is the visual reveal.
+  entities.hearSonar(player.pos.x, player.pos.z);
+  energy = Math.max(0, energy - SONAR_COST); // revealing costs energy
 }
 
 canvas.addEventListener("mousedown", (e) => {

@@ -41,6 +41,7 @@ export class AudioSystem {
   constructor() {
     this.ctx = null;
     this.master = null;
+    this.ambience = null;    // background static + drone + creaks
     this.voices = new Map(); // entity object -> { panner, filter, stepTimer }
 
     // Safety net: browsers can leave (or re-put) the context in a suspended
@@ -257,40 +258,119 @@ export class AudioSystem {
     osc.stop(t + 0.16);
   }
 
-  // --- Sonar hit cue --------------------------------------------------------
-  // Fired when the expanding ring reaches an entity: a brief, sharp blip placed
-  // exactly at its 3D position, so you can hear precisely where it is in the
-  // dark. Scheduled with setTimeout so it plays at the entity's LIVE position.
-  // Bypasses the occlusion filter on purpose — it's a locator, not ambience.
-  pingEntity(entity, delaySeconds) {
-    if (!this.ctx) return;
-    setTimeout(() => {
-      if (!this.ctx) return;
-      const t = this.ctx.currentTime;
-      const panner = this._makePanner();
-      this._setPannerPos(panner, entity.x, EAR_HEIGHT, entity.z, t);
-      panner.connect(this._out());
+  // --- Ambience -------------------------------------------------------------
+  // A continuous bed of unsettling room tone, started when a run begins:
+  //   * dull filtered STATIC (a dead-air hiss, like a room that's too quiet),
+  //     with a very slow LFO on its cutoff so it breathes rather than sits still
+  //   * a sub-bass DRONE built from two slightly detuned sines, which beat
+  //     against each other and never quite resolve
+  //   * occasional distant CREAKS at random intervals, so the silence between
+  //     them starts to feel like it's waiting for something
+  startAmbience() {
+    if (!this.ctx || this.ambience) return;
+    const ctx = this.ctx;
 
+    // Static: two seconds of noise, looped.
+    const dur = 2;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    noise.loop = true;
+
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 180;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 1400;
+    const hiss = ctx.createGain();
+    hiss.gain.value = 0.055; // sits under everything; felt, not listened to
+
+    // Slow sweep on the cutoff so the static drifts.
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 0.07; // ~14s cycle
+    const lfoDepth = ctx.createGain();
+    lfoDepth.gain.value = 550;
+    lfo.connect(lfoDepth);
+    lfoDepth.connect(lp.frequency);
+
+    noise.connect(hp);
+    hp.connect(lp);
+    lp.connect(hiss);
+    hiss.connect(this.master);
+
+    // Drone: detuned sines, beating slowly.
+    const d1 = ctx.createOscillator();
+    d1.type = "sine";
+    d1.frequency.value = 52;
+    const d2 = ctx.createOscillator();
+    d2.type = "sine";
+    d2.frequency.value = 52.6; // the offset is what makes it uneasy
+    const drone = ctx.createGain();
+    drone.gain.value = 0.05;
+    d1.connect(drone);
+    d2.connect(drone);
+    drone.connect(this.master);
+
+    noise.start();
+    lfo.start();
+    d1.start();
+    d2.start();
+
+    this.ambience = { noise, lfo, d1, d2, nodes: [hiss, drone, hp, lp, lfoDepth] };
+    this._scheduleCreak();
+  }
+
+  // A distant, muffled creak/settle at random intervals (8-22s).
+  _scheduleCreak() {
+    if (!this.ambience) return;
+    const delay = 8000 + Math.random() * 14000;
+    this.ambience.creakTimer = setTimeout(() => {
+      if (!this.ambience || !this.ctx) return;
+      const t = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(1250, t);
-      osc.frequency.exponentialRampToValueAtTime(760, t + 0.16);
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 500; // distant = no high end
+      osc.type = "sawtooth";
+      const base = 70 + Math.random() * 90;
+      osc.frequency.setValueAtTime(base, t);
+      osc.frequency.exponentialRampToValueAtTime(base * 0.6, t + 0.8);
       gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(0.6, t + 0.008);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-      osc.connect(gain);
-      gain.connect(panner);
+      gain.gain.exponentialRampToValueAtTime(0.10, t + 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+      osc.connect(lp);
+      lp.connect(gain);
+      gain.connect(this.master);
       osc.start(t);
-      osc.stop(t + 0.25);
-      osc.onended = () => {
-        try {
-          panner.disconnect();
-        } catch {
-          /* already gone */
-        }
-      };
-    }, Math.max(0, delaySeconds) * 1000);
+      osc.stop(t + 1.0);
+      this._scheduleCreak();
+    }, delay);
+  }
+
+  stopAmbience() {
+    if (!this.ambience) return;
+    const a = this.ambience;
+    clearTimeout(a.creakTimer);
+    for (const src of [a.noise, a.lfo, a.d1, a.d2]) {
+      try {
+        src.stop();
+        src.disconnect();
+      } catch {
+        /* already stopped */
+      }
+    }
+    for (const n of a.nodes) {
+      try {
+        n.disconnect();
+      } catch {
+        /* already gone */
+      }
+    }
+    this.ambience = null;
   }
 
   // --- Non-spatial (inside your head) --------------------------------------

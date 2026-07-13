@@ -23,6 +23,7 @@ const CELL = 6;          // cell size / hallway width (world units)
 const WALL_H = 3.2;      // wall + ceiling height (low and oppressive)
 const WALL_T = 0.3;      // wall thickness
 const WALL_PROB = 0.5;   // chance a given cell edge carries a wall
+const BLOOD_CHANCE = 0.03; // fraction of individual walls that carry bloody writing
 const CHUNK_CELLS = 4;   // cells per chunk edge
 const CHUNK_SIZE = CELL * CHUNK_CELLS;
 const CHUNK_RADIUS = 2;  // chunks kept live around the player (per axis)
@@ -162,14 +163,15 @@ export class World {
 
     // Shared geometry/materials keep each chunk lightweight to build and drop.
     this.boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    // Wall texture variants; a chunk deterministically picks one so the maze
-    // has visual variety (grime, heavy stains, and occasional bloody writing).
+    // Normal (non-bloody) wall variants; a chunk picks one for visual variety.
     this.wallMats = [
       new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("grime", 0) }),
       new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("grime", 1) }),
       new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("stain", 2) }),
-      new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("blood", 3) }),
     ];
+    // Rare bloody-writing material, applied to only a scattered few walls so it
+    // stays a shock rather than plastering every surface.
+    this.bloodMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("blood", 0) });
     this.floorMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeFloorTexture() });
     this.ceilMat = new THREE.MeshLambertMaterial({ color: COL_CEIL });
     this.tileGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
@@ -188,41 +190,48 @@ export class World {
     const j0 = cy * CHUNK_CELLS;
     const wallMat = this.wallMats[Math.floor(hash2(cx, cy, 777) * this.wallMats.length)];
 
-    // --- Walls: gather present edges, then pack into a single InstancedMesh ---
-    const insts = [];
+    // --- Walls: gather present edges, splitting off a rare few for bloody
+    //     writing so it's an occasional shock rather than on every wall. ---
+    const normalInsts = [];
+    const bloodInsts = [];
     for (let di = 0; di < CHUNK_CELLS; di++) {
       for (let dj = 0; dj < CHUNK_CELLS; dj++) {
         const i = i0 + di;
         const j = j0 + dj;
         if (wallPresent(0, i, j)) {
           // South edge: spans x across the cell, thin in z.
-          insts.push({ px: (i + 0.5) * CELL, pz: j * CELL, sx: CELL, sz: WALL_T });
+          const inst = { px: (i + 0.5) * CELL, pz: j * CELL, sx: CELL, sz: WALL_T };
+          (hash2(i, j, 811) < BLOOD_CHANCE ? bloodInsts : normalInsts).push(inst);
           bounds.push({ minX: i * CELL, maxX: (i + 1) * CELL, minZ: j * CELL - WALL_T / 2, maxZ: j * CELL + WALL_T / 2 });
         }
         if (wallPresent(1, i, j)) {
           // West edge: spans z across the cell, thin in x.
-          insts.push({ px: i * CELL, pz: (j + 0.5) * CELL, sx: WALL_T, sz: CELL });
+          const inst = { px: i * CELL, pz: (j + 0.5) * CELL, sx: WALL_T, sz: CELL };
+          (hash2(i, j, 911) < BLOOD_CHANCE ? bloodInsts : normalInsts).push(inst);
           bounds.push({ minX: i * CELL - WALL_T / 2, maxX: i * CELL + WALL_T / 2, minZ: j * CELL, maxZ: (j + 1) * CELL });
         }
       }
     }
 
-    if (insts.length) {
-      const wallMesh = new THREE.InstancedMesh(this.boxGeo, wallMat, insts.length);
-      // Instances are placed in world space, but an InstancedMesh frustum-culls
-      // by its base geometry's bounding sphere at the mesh origin — which would
-      // wrongly cull the whole chunk. Disable culling for these spread meshes.
-      wallMesh.frustumCulled = false;
-      for (let k = 0; k < insts.length; k++) {
-        const w = insts[k];
+    // Pack a list of wall instances into one InstancedMesh with the given
+    // material. frustumCulled is off because instances live in world space but
+    // the mesh's bounding sphere sits at the origin (would wrongly cull chunks).
+    const addWalls = (list, material) => {
+      if (!list.length) return;
+      const mesh = new THREE.InstancedMesh(this.boxGeo, material, list.length);
+      mesh.frustumCulled = false;
+      for (let k = 0; k < list.length; k++) {
+        const w = list[k];
         _p.set(w.px, WALL_H / 2, w.pz);
         _s.set(w.sx, WALL_H, w.sz);
         _m.compose(_p, _q.identity(), _s);
-        wallMesh.setMatrixAt(k, _m);
+        mesh.setMatrixAt(k, _m);
       }
-      wallMesh.instanceMatrix.needsUpdate = true;
-      group.add(wallMesh);
-    }
+      mesh.instanceMatrix.needsUpdate = true;
+      group.add(mesh);
+    };
+    addWalls(normalInsts, wallMat);
+    addWalls(bloodInsts, this.bloodMat);
 
     // --- Floor & ceiling planes ---------------------------------------------
     const centerX = i0 * CELL + CHUNK_SIZE / 2;

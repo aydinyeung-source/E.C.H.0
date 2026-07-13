@@ -23,6 +23,7 @@ body {
   width: 100vw;
   height: 100vh;
   display: block;
+  touch-action: none; /* no browser panning/zoom gestures stealing our input */
 }
 
 /* Small neon-green reticle at screen center. */

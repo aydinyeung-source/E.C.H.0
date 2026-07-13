@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.9.0";
+const VERSION = "v2.9.1";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -80,12 +80,36 @@ let playing = false; // actively in a run (pointer-locked on PC, or started on m
 // On PC we use pointer lock; on mobile we drive everything from touch, so the
 // "playing" state can't be derived from the pointer lock alone.
 const DEVICE_KEY = "echo-device";
-const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
-let deviceMode = localStorage.getItem(DEVICE_KEY) || (isTouchDevice ? "mobile" : "pc");
+// NB: don't use maxTouchPoints/ontouchstart here — those are true on any laptop
+// with a touchscreen, which would wrongly force mobile mode and never request
+// pointer lock (so the trackpad/mouse camera would silently do nothing).
+// "pointer: coarse" is true only when the PRIMARY input is a finger.
+const prefersTouch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+let deviceMode = localStorage.getItem(DEVICE_KEY) || (prefersTouch ? "mobile" : "pc");
 deviceSelect.value = deviceMode;
 deviceSelect.addEventListener("change", () => {
   deviceMode = deviceSelect.value;
   localStorage.setItem(DEVICE_KEY, deviceMode);
+});
+
+// Requesting pointer lock can be REFUSED — browsers enforce a short cooldown
+// after an unlock (e.g. you hit Esc and immediately click Resume), and it can
+// fail if the document isn't focused. Newer browsers reject a promise; older
+// ones fire pointerlockerror. Either way we stay paused so the player can just
+// click again, instead of silently ending up unlocked with a dead camera.
+function lockPointer() {
+  let req;
+  try {
+    req = canvas.requestPointerLock();
+  } catch {
+    showPause();
+    return;
+  }
+  if (req && typeof req.catch === "function") req.catch(() => showPause());
+}
+
+document.addEventListener("pointerlockerror", () => {
+  if (deviceMode === "pc") showPause();
 });
 
 function setPlaying(v) {
@@ -171,7 +195,7 @@ function startRun(rawSeedText, label, isDaily) {
   seedTag.textContent = (label ? label + " · " : "") + "SEED " + run.seed;
 
   // PC goes through pointer lock (which starts play on lock); mobile starts now.
-  if (deviceMode === "pc") canvas.requestPointerLock();
+  if (deviceMode === "pc") lockPointer();
   else beginPlay();
 }
 
@@ -269,7 +293,7 @@ tryAgainButton.addEventListener("click", () => {
 
 // Resume the paused run or bail out to the home screen.
 resumeButton.addEventListener("click", () => {
-  if (deviceMode === "pc") canvas.requestPointerLock(); // lock -> beginPlay()
+  if (deviceMode === "pc") lockPointer(); // lock -> beginPlay()
   else beginPlay();
 });
 homeButton.addEventListener("click", () => {
@@ -370,6 +394,11 @@ canvas.addEventListener("mousedown", (e) => {
   if (sonarBinding === "mouse" + e.button) fireSonar();
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault()); // never show the menu
+// Swallow trackpad two-finger scroll / swipe gestures while playing, so they
+// can't scroll the page or trigger browser back-navigation (which drops the lock).
+canvas.addEventListener("wheel", (e) => {
+  if (playing) e.preventDefault();
+}, { passive: false });
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   if (sonarBinding === e.code) fireSonar();

@@ -75,7 +75,10 @@ export class Player {
   }
 
   _bindInput() {
-    document.addEventListener("mousemove", (e) => {
+    // pointermove (not mousemove) captures trackpad hardware packets more
+    // smoothly. Deltas are taken raw from movementX/Y with no deadzone or
+    // minimum threshold, so slow, subtle trackpad drags still register.
+    document.addEventListener("pointermove", (e) => {
       if (!this.isLocked) return;
       this.look(e.movementX, e.movementY);
     });

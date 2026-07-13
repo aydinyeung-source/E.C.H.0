@@ -14,7 +14,7 @@ import { AudioSystem } from "./audio.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.6.5";
+const VERSION = "v2.6.6";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");

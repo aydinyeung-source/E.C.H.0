@@ -17,7 +17,7 @@
 // -----------------------------------------------------------------------------
 
 export const ECHO_MAX = 12;    // max simultaneous rings
-export const GLOW_TIME = 12.0; // seconds for a lit surface to fade back to black
+export const GLOW_TIME = 15.0; // seconds for a revealed surface to fade back to black
 export const WAVE_SPEED = 26.0; // ring expansion speed (units/second)
 
 export const revealUniforms = {

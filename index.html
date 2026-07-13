@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>E.C.H.0</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -162,5 +164,37 @@
     <!-- Three.js (UMD build) exposes a global `THREE` before our modules run. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script type="module" src="./game.js"></script>
+
+    <!-- Service worker: makes the game fully playable offline. Registered after
+         load so it never competes with the first paint for bandwidth. -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          const t0 = performance.now();
+          navigator.serviceWorker
+            .register("./sw.js")
+            .then((reg) => {
+              const ms = (performance.now() - t0).toFixed(1);
+              console.info(
+                `%c[E.C.H.0]%c service worker ready in ${ms}ms — the game is playable offline.`,
+                "color:#39ff14;font-weight:bold",
+                "color:inherit"
+              );
+              console.info(`[E.C.H.0] sw scope: ${reg.scope}`);
+              // Report how long the page itself took, for comparison.
+              const nav = performance.getEntriesByType("navigation")[0];
+              if (nav) {
+                console.info(
+                  `[E.C.H.0] page load: ${nav.duration.toFixed(1)}ms ` +
+                    `(served from ${nav.transferSize === 0 ? "CACHE" : "network"})`
+                );
+              }
+            })
+            .catch((err) => {
+              console.warn("[E.C.H.0] service worker registration failed:", err);
+            });
+        });
+      }
+    </script>
   </body>
 </html>

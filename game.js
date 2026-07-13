@@ -14,9 +14,9 @@ import { AudioSystem } from "./audio.js";
 import { Pickups, MEAT_ENERGY } from "./pickups.js";
 import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
-import { submitDistance } from "./supabase.js";
+import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.21.0";
+const VERSION = "v2.22.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -776,10 +776,25 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
+// --- Offline score catch-up -------------------------------------------------
+// Scores set with no connection are queued in localStorage. Replay them once we
+// have a network AND the account that earned them is signed back in — so we run
+// this after Menu.init() has restored the session, and again whenever the
+// connection comes back mid-session.
+async function syncOfflineScores() {
+  const queued = pendingSyncCount();
+  if (!queued) return;
+  console.info(`[E.C.H.0] ${queued} score(s) waiting to sync…`);
+  const res = await flushPendingScores();
+  if (res.synced) Menu.refreshLeaderboard(todayUTC()); // the board just changed
+}
+
+window.addEventListener("online", syncOfflineScores);
+
 // --- Boot -------------------------------------------------------------------
 versionTag.textContent = VERSION;
 versionLabel.textContent = VERSION;
 buildHotbar();
-Menu.init();
+Menu.init().then(syncOfflineScores); // wait for the session before replaying
 Menu.refreshLeaderboard(todayUTC());
 requestAnimationFrame(loop);

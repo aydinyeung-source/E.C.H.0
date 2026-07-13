@@ -1,0 +1,19 @@
+{
+  "name": "E.C.H.0",
+  "short_name": "E.C.H.0",
+  "description": "A first-person liminal horror game. The dark only answers when you call to it.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

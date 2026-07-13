@@ -98,7 +98,9 @@ export async function getCurrentUser() {
   const client = await loadClient();
   if (!client) return null;
   const { data } = await client.auth.getUser();
-  return data?.user ?? null;
+  const user = data?.user ?? null;
+  rememberUser(user); // so an offline score knows whose it is
+  return user;
 }
 
 // Prefer the profile row's username; fall back to auth metadata if needed.
@@ -115,7 +117,11 @@ export async function getUsername() {
 export async function onAuthChange(callback) {
   const client = await loadClient();
   if (!client) return;
-  client.auth.onAuthStateChange((_event, session) => callback(session?.user ?? null));
+  client.auth.onAuthStateChange((_event, session) => {
+    const user = session?.user ?? null;
+    rememberUser(user); // keep the offline-queue attribution in step
+    callback(user);
+  });
 }
 
 // --- Leaderboard (distance explored, per daily seed) ------------------------
@@ -130,15 +136,124 @@ function readLocal() {
   }
 }
 
-export async function submitDistance({ seed, date, distance }) {
-  const client = await loadClient();
-  if (!client) {
-    // Offline: keep the best distance per date on this device only.
-    const store = readLocal();
-    store[date] = Math.max(store[date] || 0, distance);
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(store));
-    return { ok: true, local: true };
+// --- Offline score queue ----------------------------------------------------
+// Scores earned with no connection are serialised into localStorage under
+// PENDING_KEY and replayed the next time the game boots online.
+//
+// A queued score records WHO earned it. submit_score() stamps the user from the
+// authenticated session, so a score can only be replayed by the same account
+// that set it — otherwise a queued run could be silently credited to whoever
+// happens to log in next on that device. Scores earned while signed out aren't
+// queued at all (there's no one to attribute them to); they still count towards
+// the local best.
+const PENDING_KEY = "echo-pending-sync";
+const LAST_USER_KEY = "echo-last-user";
+
+function readPending() {
+  try {
+    const v = JSON.parse(localStorage.getItem(PENDING_KEY));
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
   }
+}
+
+function writePending(list) {
+  localStorage.setItem(PENDING_KEY, JSON.stringify(list));
+}
+
+function rememberUser(user) {
+  if (user) {
+    localStorage.setItem(
+      LAST_USER_KEY,
+      JSON.stringify({ id: user.id, username: user.user_metadata?.username ?? null })
+    );
+  } else {
+    localStorage.removeItem(LAST_USER_KEY);
+  }
+}
+
+function lastKnownUser() {
+  try {
+    return JSON.parse(localStorage.getItem(LAST_USER_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function recordLocalBest(date, distance) {
+  const store = readLocal();
+  store[date] = Math.max(store[date] || 0, distance);
+  localStorage.setItem(LOCAL_KEY, JSON.stringify(store));
+}
+
+function queueScore({ seed, date, distance }) {
+  const who = lastKnownUser();
+  if (!who?.id) return false; // signed out: nobody to credit it to
+  const pending = readPending();
+  pending.push({
+    seed,
+    date,
+    distance,
+    userId: who.id,
+    username: who.username,
+    timestamp: new Date().toISOString(),
+  });
+  writePending(pending);
+  return true;
+}
+
+export function pendingSyncCount() {
+  return readPending().length;
+}
+
+// Replay any queued scores. Called at boot and whenever the connection returns.
+// Only replays entries belonging to the CURRENTLY signed-in user; anything else
+// is left in the queue for its owner to sync later.
+export async function flushPendingScores() {
+  if (!navigator.onLine) return { ok: false, synced: 0, reason: "offline" };
+  const pending = readPending();
+  if (!pending.length) return { ok: true, synced: 0 };
+
+  const client = await loadClient();
+  if (!client) return { ok: false, synced: 0, reason: "no client" };
+
+  const { data } = await client.auth.getUser();
+  const user = data?.user;
+  if (!user) return { ok: false, synced: 0, reason: "signed out" };
+
+  const remaining = [];
+  let synced = 0;
+  for (const item of pending) {
+    if (item.userId !== user.id) {
+      remaining.push(item); // not ours to submit
+      continue;
+    }
+    const { error } = await client.rpc("submit_score", {
+      p_seed: item.seed,
+      p_date: item.date,
+      p_distance: item.distance,
+    });
+    if (error) remaining.push(item); // keep it and try again next time
+    else synced++;
+  }
+
+  writePending(remaining);
+  if (synced) console.info(`[E.C.H.0] synced ${synced} offline score(s) to the leaderboard.`);
+  return { ok: true, synced, remaining: remaining.length };
+}
+
+export async function submitDistance({ seed, date, distance }) {
+  recordLocalBest(date, distance); // the local best is always kept
+
+  // Don't even open a socket if the device knows it's offline — queue it.
+  if (!navigator.onLine) {
+    return { ok: true, queued: queueScore({ seed, date, distance }), offline: true };
+  }
+
+  const client = await loadClient();
+  if (!client) return { ok: true, local: true }; // no backend configured
+
   // submit_score is a SECURITY DEFINER function that stamps the user id and
   // username server-side and keeps the greater of the old/new distance.
   const { error } = await client.rpc("submit_score", {
@@ -146,7 +261,11 @@ export async function submitDistance({ seed, date, distance }) {
     p_date: date,
     p_distance: distance,
   });
-  return { ok: !error, error };
+
+  // navigator.onLine lies (it only means "has a network interface", not "can
+  // reach the internet"), so a failure here still gets queued for retry.
+  if (error) return { ok: false, queued: queueScore({ seed, date, distance }), error };
+  return { ok: true };
 }
 
 export async function fetchDailyLeaderboard(date, limit = 10) {

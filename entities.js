@@ -4,110 +4,126 @@ import { installReveal } from "./reveal.js";
 import { RUN_SPEED as PLAYER_RUN_SPEED } from "./player.js";
 
 // -----------------------------------------------------------------------------
-// The threat: sound-driven, sight-driven, and solid.
+// The inhabitants.
 //
-// Entities are BLIND until they either HEAR you (any sonar click tells every
-// entity your exact position — see hearSonar) or SEE you (clear line of sight,
-// no wall between). While they can see you they lock onto your real position.
-// Break line of sight and they keep coming for LOS_MEMORY seconds on the memory
-// of where you were; after that they lose you and settle at that last spot.
+// These things are NOT spawned at you. They already live here. They are out in
+// the maze from the moment you arrive, wandering their own routes, minding their
+// own business — and they will happily keep doing that forever if you leave them
+// alone. The world is populated; it is not reacting to you.
 //
-// They CANNOT walk through walls: with a clear sightline they beeline, otherwise
-// they A*-path around the maze, and they're pushed out of walls like the player.
-// Far away they rush at CHASE_SPEED (2.5x); within CLOSE_RANGE they slow to
-// BASE_SPEED (1x) and stalk. Contact = death.
+// What wakes them is the SONAR. It is a sound nothing down here has ever made,
+// and everything within earshot turns toward it. That's the whole bargain of the
+// game: the only way to see is to announce yourself.
+//
+// A woken entity hunts you. It hunts using:
+//   * SIGHT  — a clear sightline within SIGHT_RANGE locks onto your real position
+//   * SOUND  — a sonar ping within HEAR_RADIUS gives you away for PING_MEMORY
+// Lose both and, after the timer lapses, it forgets you and goes back to
+// wandering. They can't walk through walls: with a sightline they beeline,
+// otherwise they A*-path around the maze.
+//
+// Special states:
+//   * ENRAGED (torch beam in the face) — tracks you through walls, never stalks
+//   * BLINDED (crucifix)               — can't see/hear/track/catch you at all
 // -----------------------------------------------------------------------------
 
 const BODY_COLOR = 0x0a0a0a;
 const EYE_COLOR = 0xff1f1f;
-const BASE_SPEED = 2.4;             // "1x" — used within CLOSE_RANGE
-// 2.5x when enraged/hunting from range — but HARD-CAPPED below the player's
-// sprint so a running player can always break away. Derived from the player's
-// actual run speed, so retuning that can never accidentally make entities
-// un-outrunnable. (2.4*2.5 = 6.0 vs the 6.46 cap, so it lands at 6.0 — about
-// 21% slower than a sprint, and still faster than a 5.1 walk.)
-const CHASE_SPEED = Math.min(BASE_SPEED * 2.5, PLAYER_RUN_SPEED * 0.85);
-const CLOSE_RANGE = 5;              // metres; inside this the entity slows to 1x
-const LOS_MEMORY = 2;               // seconds it keeps chasing after losing SIGHT
-const PING_MEMORY = 3;              // seconds a sonar ping exposes you for
-const KILL_RADIUS = 0.9;            // contact distance (XZ) that ends the run
-const ENTITY_RADIUS = 0.35;         // collision radius, so it can't clip walls
-const REPATH_INTERVAL = 0.5;        // seconds between A* recomputes while blind
-const SPAWN_MIN = 16;
-const SPAWN_MAX = 34;
-const MIN_SEPARATION = 22;          // keep spawns well apart from each other
-const DESPAWN = 52;                 // remove if it drifts this far from the player
-const FIRST_DELAY = 10;             // seconds of grace at the start of a run
-const SPAWN_MIN_DISTANCE = 12;      // ...and nothing spawns until you've ventured out
-const MAX_CAP = 6;
 
-const _v = new THREE.Vector3(); // scratch for wall collision
+const WANDER_SPEED = 1.3;           // an unbothered amble
+const BASE_SPEED = 2.4;             // "1x" — used within CLOSE_RANGE
+// 2.5x when hunting from range — but HARD-CAPPED below the player's sprint so a
+// running player can always break away. Derived from the player's actual run
+// speed, so retuning that can never accidentally make them un-outrunnable.
+const CHASE_SPEED = Math.min(BASE_SPEED * 2.5, PLAYER_RUN_SPEED * 0.85);
+
+const SIGHT_RANGE = 20;             // how far they can actually see you
+const HEAR_RADIUS = 40;             // how far a sonar ping carries
+const CLOSE_RANGE = 5;              // inside this a hunter slows to 1x and stalks
+const LOS_MEMORY = 2;               // seconds it keeps hunting after losing SIGHT
+const PING_MEMORY = 3;              // seconds a sonar ping exposes you for
+
+const KILL_RADIUS = 0.9;
+const ENTITY_RADIUS = 0.35;
+const REPATH_INTERVAL = 0.5;
+
+// Population. They're placed out in the world, far away and out of sight — never
+// dropped on top of you — and kept well apart from each other so you never get
+// pincered down one corridor.
+const BASE_POP = 4;
+const MAX_POP = 7;
+const POP_MIN_DIST = 30;            // always well beyond SIGHT_RANGE
+const POP_MAX_DIST = 50;
+const MIN_SEPARATION = 22;
+const DESPAWN = 60;                 // drop ones that fall far behind, then re-place
+
+const _v = new THREE.Vector3();
 
 export class EntitySystem {
   constructor(scene) {
     this.scene = scene;
     this.entities = [];
-    this.spawnCd = FIRST_DELAY;
-    this.nearest = Infinity; // distance to the closest entity (for footstep audio)
+    this.nearest = Infinity;
 
     this.bodyGeo = new THREE.CylinderGeometry(0.22, 0.32, 1.5, 8);
     this.headGeo = new THREE.SphereGeometry(0.26, 10, 8);
     this.eyeGeo = new THREE.SphereGeometry(0.05, 6, 6);
     this.bodyMat = new THREE.MeshPhongMaterial({ color: BODY_COLOR, shininess: 0 });
     installReveal(this.bodyMat); // the sonar rings reveal their shape
-    this.eyeMat = new THREE.MeshBasicMaterial({ color: EYE_COLOR }); // always glowing
+    this.eyeMat = new THREE.MeshBasicMaterial({ color: EYE_COLOR });
   }
 
-  reset() {
+  // Wipe and re-populate the world around the spawn point.
+  reset(playerPos) {
     for (const e of this.entities) this.scene.remove(e.group);
     this.entities = [];
-    this.spawnCd = FIRST_DELAY;
     this.nearest = Infinity;
-  }
-
-  // A sonar ping gives you away — but only for PING_MEMORY seconds. Within that
-  // window they know where you are and hunt you; once it lapses, if they still
-  // can't SEE you, they lose you completely and stop chasing.
-  hearSonar(x, z) {
-    for (const e of this.entities) {
-      if (e.blindTimer > 0) continue; // a blinded entity hears nothing
-      e.tx = x;
-      e.tz = z;
-      e.trackTimer = Math.max(e.trackTimer, PING_MEMORY);
-      e.path = null; // the destination moved; recompute the route
+    if (playerPos) {
+      for (let i = 0; i < BASE_POP; i++) this._place(playerPos);
     }
   }
 
-  // Brandishing a crucifix BLINDS EVERY ENTITY for `duration` seconds — not just
-  // the nearest one, and regardless of distance. A blinded entity can't see you,
-  // can't hear you, can't track you and can't catch you: it just gropes around
-  // where it stands. This is your escape window.
+  // The sonar: an unfamiliar sound. Everything within earshot turns toward it.
+  hearSonar(x, z) {
+    let heard = 0;
+    for (const e of this.entities) {
+      if (e.blindTimer > 0) continue;                     // deafened too
+      if (Math.hypot(e.x - x, e.z - z) > HEAR_RADIUS) continue; // too far to carry
+      e.tx = x;
+      e.tz = z;
+      e.trackTimer = Math.max(e.trackTimer, PING_MEMORY);
+      e.path = null;
+      e.wanderPath = null; // it stops what it was doing
+      heard++;
+    }
+    return heard;
+  }
+
+  // Crucifix: BLINDS EVERY entity for `duration`. A blinded one can't see, hear,
+  // track or catch you — it just gropes around where it stands.
   blindAll(duration) {
     for (const e of this.entities) {
       e.blindTimer = duration;
-      e.trackTimer = 0;  // it loses you entirely
-      e.enrageTimer = 0; // and it snaps out of any torch rage
+      e.trackTimer = 0;
+      e.enrageTimer = 0;
       e.path = null;
     }
     return this.entities.length;
   }
 
-  // Caught in the torch beam. An ENRAGED entity knows exactly where you are
-  // regardless of walls or sight, and never slows down to stalk — it just comes.
+  // Torch beam in the face: it tracks you through walls and never stalks.
   enrage(entity, duration) {
-    if (entity.blindTimer > 0) return; // a blinded one can't be enraged
+    if (entity.blindTimer > 0) return;
     entity.enrageTimer = Math.max(entity.enrageTimer, duration);
   }
 
-  _spawn(playerPos) {
-    // Spread them out: try a few ring positions and take the first that isn't
-    // crowding an existing entity. Two of them converging on you from the same
-    // corridor is unsurvivable — they need to come from different places.
+  // Put one out in the world: far away, out of sight, clear of the others.
+  _place(playerPos) {
     let x = 0;
     let z = 0;
     for (let attempt = 0; attempt < 14; attempt++) {
       const angle = Math.random() * Math.PI * 2;
-      const dist = SPAWN_MIN + Math.random() * (SPAWN_MAX - SPAWN_MIN);
+      const dist = POP_MIN_DIST + Math.random() * (POP_MAX_DIST - POP_MIN_DIST);
       x = playerPos.x + Math.cos(angle) * dist;
       z = playerPos.z + Math.sin(angle) * dist;
       let clear = true;
@@ -117,7 +133,7 @@ export class EntitySystem {
           break;
         }
       }
-      if (clear) break; // otherwise fall through with the last candidate
+      if (clear) break;
     }
 
     const group = new THREE.Group();
@@ -133,49 +149,71 @@ export class EntitySystem {
     group.position.set(x, 0, z);
     this.scene.add(group);
 
-    // Target starts at the spawn spot: it lurks there until it sees or hears you.
     this.entities.push({
       group, x, z,
-      tx: x, tz: z,       // last known player position
-      trackTimer: 0,      // >0 while it still knows where you are
-      blindTimer: 0,      // >0 while blinded by a crucifix
-      enrageTimer: 0,     // >0 while enraged by the torch beam
+      tx: x, tz: z,      // last known player position (only once it knows)
+      trackTimer: 0,     // >0 while it knows where you are
+      blindTimer: 0,
+      enrageTimer: 0,
       path: null,
       pathTimer: 0,
+      wanderPath: null,  // its own aimless route
+      wanderTimer: 0,
       canSee: false,
     });
   }
 
-  // Returns true if an entity caught the player. `distance` (explored distance)
-  // ramps the max simultaneous entity count. `world` provides line-of-sight,
-  // pathfinding and wall collision.
-  update(dt, playerPos, distance, world) {
-    this.spawnCd -= dt;
-    const cap = Math.min(1 + Math.floor(distance / 30), MAX_CAP);
-    // Nothing hunts you at the very start: you get both a grace period AND have
-    // to actually venture away from spawn before anything appears.
-    const maySpawn = this.spawnCd <= 0 && distance > SPAWN_MIN_DISTANCE;
-    if (maySpawn && this.entities.length < cap) {
-      this._spawn(playerPos);
-      this.spawnCd = Math.max(2.5, 6.5 - distance * 0.02);
+  // Unbothered: amble along its own route, pick a new one when it runs out.
+  _wander(e, dt, world) {
+    e.wanderTimer -= dt;
+    if (!e.wanderPath || !e.wanderPath.length || e.wanderTimer <= 0) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 8 + Math.random() * 18;
+      e.wanderPath = world.findPath(e.x, e.z, e.x + Math.cos(a) * r, e.z + Math.sin(a) * r);
+      e.wanderTimer = 6 + Math.random() * 8;
     }
+    if (!e.wanderPath || !e.wanderPath.length) return;
+
+    if (Math.hypot(e.wanderPath[0].x - e.x, e.wanderPath[0].z - e.z) < 0.6) e.wanderPath.shift();
+    const next = e.wanderPath[0];
+    if (!next) return;
+
+    const ax = next.x - e.x;
+    const az = next.z - e.z;
+    const d = Math.hypot(ax, az);
+    if (d < 0.05) return;
+    const step = (WANDER_SPEED * dt) / d;
+    _v.set(e.x + ax * step, 0, e.z + az * step);
+    world.collide(_v, ENTITY_RADIUS);
+    e.x = _v.x;
+    e.z = _v.z;
+    e.group.position.set(e.x, 0, e.z);
+    e.group.rotation.y = Math.atan2(ax, az);
+  }
+
+  // Returns true if one caught the player.
+  update(dt, playerPos, distance, world) {
+    // Keep the world populated. New ones appear far away and out of sight — the
+    // world is stocked, they are never dropped on top of you.
+    const target = Math.min(BASE_POP + Math.floor(distance / 60), MAX_POP);
+    if (this.entities.length < target) this._place(playerPos);
 
     let caught = false;
     let nearest = Infinity;
+
     for (let i = this.entities.length - 1; i >= 0; i--) {
       const e = this.entities[i];
       const dxp = playerPos.x - e.x;
       const dzp = playerPos.z - e.z;
       const dPlayer = Math.hypot(dxp, dzp);
 
-      if (dPlayer > DESPAWN) {
+      if (dPlayer > DESPAWN) { // wandered out of the simulated region
         this.scene.remove(e.group);
         this.entities.splice(i, 1);
         continue;
       }
 
-      // --- Blinded (crucifix) -----------------------------------------------
-      // It can't see, hear, track OR catch you. It just gropes around in place.
+      // --- Blinded (crucifix) ---
       if (e.blindTimer > 0) {
         e.blindTimer -= dt;
         e.canSee = false;
@@ -191,15 +229,13 @@ export class EntitySystem {
       }
       nearest = Math.min(nearest, dPlayer);
 
-      // --- Do we know where you are? ----------------------------------------
-      // Sight beats everything. Otherwise the tracking timer runs down: it was
-      // set to PING_MEMORY (3s) by a sonar ping, or LOS_MEMORY (2s) by having
-      // just seen you. When it hits zero without a sightline, it LOSES you.
-      const canSee = !world.segmentBlocked(e.x, e.z, playerPos.x, playerPos.z);
+      // --- Does it know about you? ---
+      // Sight only works within SIGHT_RANGE — it's pitch black down here, they
+      // can't pick you out from across the level.
+      const canSee =
+        dPlayer < SIGHT_RANGE && !world.segmentBlocked(e.x, e.z, playerPos.x, playerPos.z);
       e.canSee = canSee; // the radar shows a live red dot for anything watching you
 
-      // ENRAGED (you shone the torch in its face): it knows where you are through
-      // walls, and never loses you until the rage burns out.
       const enraged = e.enrageTimer > 0;
       if (enraged) e.enrageTimer -= dt;
 
@@ -208,28 +244,26 @@ export class EntitySystem {
         e.tz = playerPos.z;
         if (canSee) {
           e.trackTimer = LOS_MEMORY;
-          e.path = null; // it can walk straight at you; no route needed
+          e.path = null;
         }
       } else {
         e.trackTimer -= dt;
         if (e.trackTimer > 0) {
-          // Still knows where you are: keep hunting your current position.
           e.tx = playerPos.x;
           e.tz = playerPos.z;
         }
       }
 
-      // Lost you: stop chasing and just lurk where you last gave yourself away.
+      // --- Unbothered: it never knew, or it has forgotten you. Back to its day.
       if (!canSee && !enraged && e.trackTimer <= 0) {
-        e.group.rotation.y = Math.atan2(dxp, dzp);
+        this._wander(e, dt, world);
         continue;
       }
 
-      // --- Steering ---------------------------------------------------------
+      // --- Hunting ---
       let aimX = e.tx;
       let aimZ = e.tz;
       if (!canSee) {
-        // No sightline: route around the walls instead of grinding into them.
         e.pathTimer -= dt;
         if (!e.path || !e.path.length || e.pathTimer <= 0) {
           e.path = world.findPath(e.x, e.z, e.tx, e.tz);
@@ -248,18 +282,18 @@ export class EntitySystem {
       const az = aimZ - e.z;
       const dAim = Math.hypot(ax, az);
       if (dAim > 0.05) {
-        // Enraged, it never drops to a stalk — it just keeps coming at full pace.
+        // Enraged, it never drops to a stalk — it just keeps coming.
         const speed = !enraged && dPlayer < CLOSE_RANGE ? BASE_SPEED : CHASE_SPEED;
         const step = (speed * dt) / dAim;
         _v.set(e.x + ax * step, 0, e.z + az * step);
-        world.collide(_v, ENTITY_RADIUS); // solid: pushed out of walls, slides along them
+        world.collide(_v, ENTITY_RADIUS);
         e.x = _v.x;
         e.z = _v.z;
         e.group.position.set(e.x, 0, e.z);
       }
-      // Always face the player so the eyes track you.
-      e.group.rotation.y = Math.atan2(dxp, dzp);
+      e.group.rotation.y = Math.atan2(dxp, dzp); // eyes on you
     }
+
     this.nearest = nearest;
     return caught;
   }

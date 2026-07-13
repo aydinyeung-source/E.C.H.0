@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.20.0";
+const VERSION = "v2.21.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -391,7 +391,9 @@ function startRun(rawSeedText, label, isDaily) {
   player.reset(SPAWN);
   world.reset();
   world.update(player.pos); // rebuild chunks around spawn from the new seed
-  entities.reset();
+  // The maze is already inhabited when you get there — they're out in it from the
+  // start, wandering, well beyond sight. They just don't know you exist yet.
+  entities.reset(player.pos);
   audio.resetVoices(); // drop spatial voices from the previous run
   pickups.reset(player.pos);
   seedTag.textContent = (label ? label + " · " : "") + "SEED " + run.seed;

@@ -14,7 +14,7 @@ import { AudioSystem } from "./audio.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.6.0";
+const VERSION = "v2.6.1";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -23,6 +23,7 @@ const dailyButton = document.getElementById("dailyButton");
 const seedInput = document.getElementById("seedInput");
 const sensSlider = document.getElementById("sensSlider");
 const sensValue = document.getElementById("sensValue");
+const sonarKeySelect = document.getElementById("sonarKey");
 const seedTag = document.getElementById("seedTag");
 const distanceTag = document.getElementById("distanceTag");
 const versionTag = document.getElementById("versionTag");
@@ -178,12 +179,28 @@ tryAgainButton.addEventListener("click", () => {
   startOverlay.classList.remove("hidden");
 });
 
-// Only the LEFT button fires a sonar pulse. Right/other buttons just steer the
-// camera (pointer-lock look is button-agnostic); suppress the context menu too.
-canvas.addEventListener("mousedown", (e) => {
-  if (e.button === 0 && document.pointerLockElement === canvas) sonar.pulse(player.pos);
+// --- Sonar keybind (default left click; changeable in Settings) -------------
+// Mouse buttons are stored as "mouse0"/"mouse2"; keys as their KeyboardEvent
+// .code ("Space", "KeyE", ...). Look (mouse move) is always button-agnostic.
+const SONAR_KEY = "echo-sonar-key";
+let sonarBinding = localStorage.getItem(SONAR_KEY) || "mouse0";
+sonarKeySelect.value = sonarBinding;
+sonarKeySelect.addEventListener("change", () => {
+  sonarBinding = sonarKeySelect.value;
+  localStorage.setItem(SONAR_KEY, sonarBinding);
 });
-canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+function fireSonar() {
+  if (document.pointerLockElement === canvas) sonar.pulse(player.pos);
+}
+
+canvas.addEventListener("mousedown", (e) => {
+  if (sonarBinding === "mouse" + e.button) fireSonar();
+});
+canvas.addEventListener("contextmenu", (e) => e.preventDefault()); // never show the menu
+window.addEventListener("keydown", (e) => {
+  if (!e.repeat && sonarBinding === e.code) fireSonar();
+});
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;

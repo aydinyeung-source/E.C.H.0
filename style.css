@@ -336,6 +336,15 @@ button.small {
   accent-color: #39ff14;
 }
 
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(57, 255, 20, 0.22);
+  background: rgba(0, 0, 0, 0.35);
+  color: #eafff0;
+}
+
 .overlay-actions {
   display: flex;
   gap: 10px;

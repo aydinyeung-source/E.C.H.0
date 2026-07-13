@@ -25,7 +25,17 @@
           <label for="sensSlider">Look sensitivity <span id="sensValue" class="sub">1.0x</span></label>
           <input id="sensSlider" type="range" min="0.4" max="2.5" step="0.05" value="1" />
         </div>
-        <p class="controls-hint">WASD move · Mouse look · Left-click sonar · Esc release</p>
+        <div class="field">
+          <label for="sonarKey">Sonar key</label>
+          <select id="sonarKey">
+            <option value="mouse0">Left click</option>
+            <option value="mouse2">Right click</option>
+            <option value="Space">Spacebar</option>
+            <option value="KeyE">E</option>
+            <option value="KeyF">F</option>
+          </select>
+        </div>
+        <p class="controls-hint">WASD move · Mouse look · Esc release</p>
       </div>
 
       <!-- Top-right: account -->

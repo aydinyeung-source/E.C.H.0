@@ -61,15 +61,20 @@ export function installReveal(material) {
       varying vec3 vEchoWorld;\n` +
       shader.fragmentShader.replace(
         "#include <output_fragment>",
+        // The loop is UNROLLED by Three's preprocessor (#pragma unroll_loop_*),
+        // turning uWaves[ i ] into constant indices — dynamic indexing of a
+        // uniform array in a fragment shader fails to compile on many drivers
+        // (that was the "sonar does nothing / world stays black" bug). The
+        // literal 24 must match ECHO_MAX. No `float x =` declarations inside the
+        // loop body (unrolling would redeclare them); temporaries live outside.
         `float echoR = 0.0;
-        for ( int i = 0; i < ECHO_MAX; i++ ) {
-          float d = distance( vEchoWorld, uWaves[i].xyz );
-          float tsp = uWaves[i].w - d / uWaveSpeed;      // time since the front passed
-          float passed = step( 0.0, tsp );
-          float glow = clamp( 1.0 - tsp / uGlowTime, 0.0, 1.0 ); // slow phosphor fade
-          float edge = 1.0 - smoothstep( 0.0, 0.12, tsp );        // bright leading ripple
-          echoR += ( glow + edge * 0.5 ) * passed * uWaveOn[i];
+        float echoTsp = 0.0;
+        #pragma unroll_loop_start
+        for ( int i = 0; i < 24; i ++ ) {
+          echoTsp = uWaves[ i ].w - distance( vEchoWorld, uWaves[ i ].xyz ) / uWaveSpeed;
+          echoR += ( clamp( 1.0 - echoTsp / uGlowTime, 0.0, 1.0 ) + ( 1.0 - smoothstep( 0.0, 0.12, echoTsp ) ) * 0.5 ) * step( 0.0, echoTsp ) * uWaveOn[ i ];
         }
+        #pragma unroll_loop_end
         echoR = clamp( echoR, 0.0, 1.6 );
         outgoingLight += ( diffuseColor.rgb + uEchoColor * 0.6 ) * echoR;
         #include <output_fragment>`

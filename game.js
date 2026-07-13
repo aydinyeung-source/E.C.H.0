@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.9.1";
+const VERSION = "v2.10.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -444,7 +444,7 @@ function loop(now) {
       energy = Math.max(0, energy - RUN_DRAIN * dt);
     }
 
-    if (entities.update(dt, player.pos, run.maxDistance)) die();
+    if (entities.update(dt, player.pos, run.maxDistance, world)) die();
 
     // Eat any decayed meat within reach to refill energy.
     const gained = pickups.update(player.pos);

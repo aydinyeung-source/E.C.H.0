@@ -444,6 +444,57 @@ export class World {
     }
   }
 
+  // Grid A* across the cell maze, so entities can walk AROUND walls instead of
+  // through them. Returns an array of {x,z} waypoints (cell centres) from the
+  // start cell to the goal, or null if no route was found within the node budget.
+  findPath(sx, sz, gx, gz, maxNodes = 600) {
+    const si = Math.floor(sx / CELL);
+    const sj = Math.floor(sz / CELL);
+    const gi = Math.floor(gx / CELL);
+    const gj = Math.floor(gz / CELL);
+    if (si === gi && sj === gj) return []; // already in the goal cell
+
+    const key = (i, j) => i + "," + j;
+    const open = [{ i: si, j: sj, g: 0, f: Math.abs(gi - si) + Math.abs(gj - sj), parent: null }];
+    const bestG = new Map([[key(si, sj), 0]]);
+    let expanded = 0;
+
+    while (open.length && expanded < maxNodes) {
+      let b = 0; // pop the lowest f (the open list stays small)
+      for (let k = 1; k < open.length; k++) if (open[k].f < open[b].f) b = k;
+      const cur = open.splice(b, 1)[0];
+      expanded++;
+
+      if (cur.i === gi && cur.j === gj) {
+        const path = [];
+        for (let n = cur; n; n = n.parent) {
+          path.push({ x: (n.i + 0.5) * CELL, z: (n.j + 0.5) * CELL });
+        }
+        path.reverse();
+        path.shift(); // drop the cell we're already standing in
+        return path;
+      }
+
+      // A cell's edges: moving +i crosses the west edge of (i+1,j), etc.
+      const steps = [
+        [cur.i + 1, cur.j, !wallPresent(1, cur.i + 1, cur.j)],
+        [cur.i - 1, cur.j, !wallPresent(1, cur.i, cur.j)],
+        [cur.i, cur.j + 1, !wallPresent(0, cur.i, cur.j + 1)],
+        [cur.i, cur.j - 1, !wallPresent(0, cur.i, cur.j)],
+      ];
+      for (const [ni, nj, passable] of steps) {
+        if (!passable) continue;
+        const g = cur.g + 1;
+        const k = key(ni, nj);
+        const prev = bestG.get(k);
+        if (prev !== undefined && prev <= g) continue;
+        bestG.set(k, g);
+        open.push({ i: ni, j: nj, g, f: g + Math.abs(gi - ni) + Math.abs(gj - nj), parent: cur });
+      }
+    }
+    return null; // no route within budget
+  }
+
   // Line-of-sight test on the XZ plane: is any wall between (x1,z1) and (x2,z2)?
   // Standard slab method against each wall's AABB. Used so the sonar/radar only
   // report what the player can actually see, not things around corners.

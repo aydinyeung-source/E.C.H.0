@@ -15,6 +15,12 @@
     <div class="crosshair" aria-hidden="true"></div>
     <div class="distance-tag" id="distanceTag"></div>
 
+    <!-- Energy meter (shown while playing). -->
+    <div class="hud-energy hidden" id="energyBar">
+      <span class="hud-energy-label">ENERGY</span>
+      <div class="hud-energy-track"><div class="hud-energy-fill" id="energyFill"></div></div>
+    </div>
+
     <!-- Home screen. Shown until the pointer is locked. Corner panels for
          settings (top-left) and account (top-right); play controls centered. -->
     <div class="overlay" id="startOverlay">
@@ -87,6 +93,27 @@
         <p class="tagline">Something found you in the dark.</p>
         <p class="dead-stat">You explored <strong id="gameOverDistance">0m</strong></p>
         <button id="tryAgainButton" type="button">Try Again</button>
+      </div>
+    </div>
+
+    <!-- Pause overlay (Esc): black background, resume or bail to home. -->
+    <div class="overlay hidden" id="pauseOverlay">
+      <div class="panel">
+        <h1>PAUSED</h1>
+        <p class="tagline">The dark waits.</p>
+        <div class="overlay-actions">
+          <button id="resumeButton" type="button">Resume</button>
+          <button id="homeButton" class="secondary" type="button">Home</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Jumpscare, shown for a beat the instant an entity catches you. -->
+    <div id="jumpscare" class="hidden" aria-hidden="true">
+      <div class="js-face">
+        <div class="js-eye left"></div>
+        <div class="js-eye right"></div>
+        <div class="js-mouth"></div>
       </div>
     </div>
 

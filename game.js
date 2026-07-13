@@ -11,10 +11,11 @@ import { Player, BASE_SENSITIVITY } from "./player.js";
 import { SonarSystem } from "./sonar.js";
 import { EntitySystem } from "./entities.js";
 import { AudioSystem } from "./audio.js";
+import { Pickups } from "./pickups.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.6.6";
+const VERSION = "v2.7.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -31,6 +32,12 @@ const versionLabel = document.getElementById("versionLabel");
 const gameOverOverlay = document.getElementById("gameOverOverlay");
 const gameOverDistance = document.getElementById("gameOverDistance");
 const tryAgainButton = document.getElementById("tryAgainButton");
+const energyBar = document.getElementById("energyBar");
+const energyFill = document.getElementById("energyFill");
+const pauseOverlay = document.getElementById("pauseOverlay");
+const resumeButton = document.getElementById("resumeButton");
+const homeButton = document.getElementById("homeButton");
+const jumpscareOverlay = document.getElementById("jumpscare");
 
 // --- Three.js core ----------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -54,9 +61,16 @@ const player = new Player(camera, canvas, SPAWN);
 const sonar = new SonarSystem();
 const entities = new EntitySystem(scene);
 const audio = new AudioSystem();
+const pickups = new Pickups(scene);
 
-let dead = false; // true once an entity has caught the player
-let stepTimer = 0; // countdown to the next footstep sound
+let dead = false;    // true once an entity has caught the player
+let stepTimer = 0;   // countdown to the next footstep sound
+let energy = 100;    // 0..ENERGY_MAX; drained by running/sonar, refilled by meat
+let runMode = false; // toggled with Q
+
+const ENERGY_MAX = 100;
+const RUN_DRAIN = 12; // energy per second while running and moving
+const SONAR_COST = 5; // energy per sonar reveal
 
 // Prime a random world behind the overlay so the scene isn't empty on load.
 setWorldSeed(parseSeed(""));
@@ -106,23 +120,32 @@ function startRun(rawSeedText, label, isDaily) {
   run.maxDistance = 0;
   dead = false;
   stepTimer = 0;
+  energy = ENERGY_MAX;
+  runMode = false;
   audio.init(); // this is called from a click, so audio is allowed to start
   gameOverOverlay.classList.add("hidden");
+  pauseOverlay.classList.add("hidden");
   setWorldSeed(run.seed);
   player.reset(SPAWN);
   world.reset();
   world.update(player.pos); // rebuild chunks around spawn from the new seed
   entities.reset();
+  pickups.reset(player.pos);
   seedTag.textContent = (label ? label + " · " : "") + "SEED " + run.seed;
   canvas.requestPointerLock();
 }
 
-// An entity reached the player: end the run. Releasing the pointer lock drives
-// the game-over overlay (see the pointerlockchange handler below).
+// An entity reached the player: jumpscare, then end the run. Releasing the
+// pointer lock (after the scare) drives the game-over overlay below.
 function die() {
   if (dead) return;
   dead = true;
-  document.exitPointerLock();
+  jumpscareOverlay.classList.remove("hidden");
+  audio.jumpscare();
+  setTimeout(() => {
+    jumpscareOverlay.classList.add("hidden");
+    document.exitPointerLock();
+  }, 1200);
 }
 
 startButton.addEventListener("click", () => startRun(seedInput.value, null, false));
@@ -158,25 +181,40 @@ document.addEventListener("pointerlockchange", () => {
   if (locked) {
     startOverlay.classList.add("hidden");
     gameOverOverlay.classList.add("hidden");
-    sonar.pulse(player.pos); // an opening ping to get your bearings
+    pauseOverlay.classList.add("hidden");
+    energyBar.classList.remove("hidden");
+    sonar.pulse(player.pos); // opening ping (free, doesn't alert entities)
     return;
   }
-  // Unlocked (paused or died): submit the daily distance and refresh the board.
+  // Unlocked: either dead (game over) or just paused (black overlay; run persists).
+  energyBar.classList.add("hidden");
+  if (dead) {
+    submitScoreIfDaily();
+    gameOverDistance.textContent = Math.round(run.maxDistance) + "m";
+    gameOverOverlay.classList.remove("hidden");
+  } else {
+    pauseOverlay.classList.remove("hidden");
+  }
+});
+
+function submitScoreIfDaily() {
   if (run.isDaily && run.maxDistance > 0) {
     submitDistance({ seed: run.seed, date: run.date, distance: run.maxDistance })
       .then(() => Menu.refreshLeaderboard(run.date));
   }
-  if (dead) {
-    gameOverDistance.textContent = Math.round(run.maxDistance) + "m";
-    gameOverOverlay.classList.remove("hidden");
-  } else {
-    startOverlay.classList.remove("hidden");
-  }
-});
+}
 
 tryAgainButton.addEventListener("click", () => {
   dead = false;
   gameOverOverlay.classList.add("hidden");
+  startOverlay.classList.remove("hidden");
+});
+
+// Resume the paused run (re-lock) or bail out to the home screen.
+resumeButton.addEventListener("click", () => canvas.requestPointerLock());
+homeButton.addEventListener("click", () => {
+  submitScoreIfDaily();
+  pauseOverlay.classList.add("hidden");
   startOverlay.classList.remove("hidden");
 });
 
@@ -192,7 +230,10 @@ sonarKeySelect.addEventListener("change", () => {
 });
 
 function fireSonar() {
-  if (document.pointerLockElement === canvas) sonar.pulse(player.pos);
+  if (document.pointerLockElement !== canvas) return;
+  sonar.pulse(player.pos);
+  entities.hearSonar(player.pos.x, player.pos.z); // the sound draws entities in
+  energy = Math.max(0, energy - SONAR_COST);      // revealing costs energy
 }
 
 canvas.addEventListener("mousedown", (e) => {
@@ -200,7 +241,9 @@ canvas.addEventListener("mousedown", (e) => {
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault()); // never show the menu
 window.addEventListener("keydown", (e) => {
-  if (!e.repeat && sonarBinding === e.code) fireSonar();
+  if (e.repeat) return;
+  if (sonarBinding === e.code) fireSonar();
+  if (e.code === "KeyQ") runMode = !runMode; // toggle running
 });
 
 window.addEventListener("resize", () => {
@@ -226,15 +269,31 @@ function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05); // clamp long frames (tab switch)
   last = now;
 
+  // Apply run intent before moving: you can only run with energy to spare.
+  player.running = runMode && energy > 0;
   player.update(dt, world);
   world.update(player.pos);
   world.animate(now * 0.001); // flickering lights
   sonar.update(dt);
+  pickups.animate(now * 0.001); // throbbing meat
   updateDistance();
 
   // Entities only hunt while actively playing (locked and alive).
   if (document.pointerLockElement === canvas && !dead) {
+    // Running drains energy while actually moving.
+    if (player.running && player.moving) {
+      energy = Math.max(0, energy - RUN_DRAIN * dt);
+    }
+
     if (entities.update(dt, player.pos, run.maxDistance)) die();
+
+    // Eat any decayed meat within reach to refill energy.
+    const gained = pickups.update(player.pos);
+    if (gained > 0) {
+      energy = Math.min(ENERGY_MAX, energy + gained);
+      audio.pickup();
+    }
+    energyFill.style.width = (energy / ENERGY_MAX) * 100 + "%";
 
     // Footsteps: play faster and louder the closer the nearest entity is.
     const near = entities.nearest;

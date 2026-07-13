@@ -423,9 +423,107 @@ button.secondary:hover {
   pointer-events: none;
 }
 
+/* Energy meter. */
+.hud-energy {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(320px, 60vw);
+  text-align: center;
+  pointer-events: none;
+}
+
+.hud-energy-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.24em;
+  color: rgba(234, 255, 240, 0.55);
+}
+
+.hud-energy-track {
+  margin-top: 5px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(57, 255, 20, 0.3);
+  background: rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.hud-energy-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #26e60a, #7dff5a);
+  box-shadow: 0 0 10px rgba(57, 255, 20, 0.5);
+  transition: width 0.1s linear;
+}
+
+/* Pause overlay: fully black so the game view is instantly hidden. */
+#pauseOverlay {
+  background: #000;
+}
+
 /* Game-over overlay. */
 #gameOverOverlay {
   background: radial-gradient(circle at center, rgba(40, 0, 0, 0.9), rgba(0, 0, 0, 0.98));
+}
+
+/* Jumpscare: shaking red-eyed face over a flashing red-black field. */
+#jumpscare {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: #000;
+  animation: jsFlash 0.11s infinite;
+}
+
+.js-face {
+  position: relative;
+  width: 66vmin;
+  height: 66vmin;
+  animation: jsShake 0.07s infinite;
+}
+
+.js-eye {
+  position: absolute;
+  top: 26%;
+  width: 20vmin;
+  height: 20vmin;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ff3a3a 0%, #8a0000 55%, #180000 100%);
+  box-shadow: 0 0 9vmin #ff0000;
+}
+
+.js-eye.left { left: 8%; }
+.js-eye.right { right: 8%; }
+
+.js-mouth {
+  position: absolute;
+  bottom: 10%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 38vmin;
+  height: 20vmin;
+  background: #0a0000;
+  border: 0.6vmin solid #4a0000;
+  border-radius: 6vmin 6vmin 50% 50%;
+  box-shadow: inset 0 0 6vmin #000;
+}
+
+@keyframes jsFlash {
+  0%, 100% { background: #000; }
+  50% { background: #350000; }
+}
+
+@keyframes jsShake {
+  0% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(-2vmin, 1.5vmin) scale(1.04); }
+  50% { transform: translate(2vmin, -1.5vmin) scale(0.97); }
+  75% { transform: translate(-1.5vmin, -2vmin) scale(1.05); }
+  100% { transform: translate(1.5vmin, 2vmin) scale(1); }
 }
 
 .dead-title {

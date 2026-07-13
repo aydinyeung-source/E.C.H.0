@@ -3,22 +3,27 @@
 import { installReveal } from "./reveal.js";
 
 // -----------------------------------------------------------------------------
-// The threat. Figures spawn out in the dark and home straight toward the player,
-// phasing through walls (no cheap safety). They are pitch black — only a sonar
-// pulse lights them up — except for faint red eyes that glint in the void so you
-// catch them coming. They move slower than a walk, so you can outrun them, but
-// stop moving and one will reach you. Contact = death.
+// The threat, now sound-driven.
+//
+// Entities are BLIND: they don't know where you are until you make noise. Every
+// sonar click (see hearSonar) tells every entity your exact position — they home
+// toward that last-heard spot. Far from you they rush at CHASE_SPEED (2.5x); once
+// within CLOSE_RANGE they drop to BASE_SPEED (1x) and stalk. So pinging to see is
+// also what gets you hunted. They still spawn at random around you over time, so
+// you can't just never click and wander forever. Contact = death.
 // -----------------------------------------------------------------------------
 
-const BODY_COLOR = 0x0a0a0a;   // near-black; only the sonar reveals the shape
-const EYE_COLOR = 0xff1f1f;    // always-visible red glints
-const SPEED = 2.5;             // slower than the player's 3.4 walk (escapable)
-const KILL_RADIUS = 0.9;       // contact distance (XZ) that ends the run
-const SPAWN_MIN = 14;          // never spawn closer than this
+const BODY_COLOR = 0x0a0a0a;
+const EYE_COLOR = 0xff1f1f;
+const BASE_SPEED = 2.4;             // "1x" — used within CLOSE_RANGE
+const CHASE_SPEED = BASE_SPEED * 2.5; // 2.5x — used when alerted and far away
+const CLOSE_RANGE = 5;              // metres; inside this the entity slows to 1x
+const KILL_RADIUS = 0.9;            // contact distance (XZ) that ends the run
+const SPAWN_MIN = 14;
 const SPAWN_MAX = 24;
-const DESPAWN = 44;            // give up chasing once this far behind
-const FIRST_DELAY = 7;         // seconds of grace at the start of a run
-const MAX_CAP = 5;
+const DESPAWN = 52;                 // remove if it drifts this far from the player
+const FIRST_DELAY = 7;              // seconds of grace at the start of a run
+const MAX_CAP = 6;
 
 export class EntitySystem {
   constructor(scene) {
@@ -27,21 +32,27 @@ export class EntitySystem {
     this.spawnCd = FIRST_DELAY;
     this.nearest = Infinity; // distance to the closest entity (for footstep audio)
 
-    // Shared assets — only a handful of entities exist at once.
     this.bodyGeo = new THREE.CylinderGeometry(0.22, 0.32, 1.5, 8);
     this.headGeo = new THREE.SphereGeometry(0.26, 10, 8);
     this.eyeGeo = new THREE.SphereGeometry(0.05, 6, 6);
     this.bodyMat = new THREE.MeshLambertMaterial({ color: BODY_COLOR });
     installReveal(this.bodyMat); // the sonar rings reveal their shape
-    this.eyeMat = new THREE.MeshBasicMaterial({ color: EYE_COLOR }); // unlit = always glowing
+    this.eyeMat = new THREE.MeshBasicMaterial({ color: EYE_COLOR }); // always glowing
   }
 
-  // Clear all entities and reset the spawn timer for a fresh run.
   reset() {
     for (const e of this.entities) this.scene.remove(e.group);
     this.entities = [];
     this.spawnCd = FIRST_DELAY;
     this.nearest = Infinity;
+  }
+
+  // Every entity "hears" a sonar ping and updates its target to that location.
+  hearSonar(x, z) {
+    for (const e of this.entities) {
+      e.tx = x;
+      e.tz = z;
+    }
   }
 
   _spawn(playerPos) {
@@ -63,44 +74,60 @@ export class EntitySystem {
     group.position.set(x, 0, z);
     this.scene.add(group);
 
-    this.entities.push({ group, x, z });
+    // Target starts at the spawn spot: it lurks there until it hears a ping.
+    this.entities.push({ group, x, z, tx: x, tz: z });
   }
 
-  // Advance all entities toward the player. Returns true if one caught them.
-  // `distance` (explored distance) ramps the max count so it gets worse deeper in.
+  // Returns true if an entity caught the player. `distance` (explored distance)
+  // ramps the max simultaneous entity count.
   update(dt, playerPos, distance) {
     this.spawnCd -= dt;
-    const cap = Math.min(1 + Math.floor(distance / 35), MAX_CAP);
+    const cap = Math.min(1 + Math.floor(distance / 30), MAX_CAP);
     if (this.spawnCd <= 0 && this.entities.length < cap) {
       this._spawn(playerPos);
-      this.spawnCd = Math.max(2.5, 6.5 - distance * 0.02); // spawn faster over time
+      this.spawnCd = Math.max(2.5, 6.5 - distance * 0.02);
     }
 
     let caught = false;
     let nearest = Infinity;
     for (let i = this.entities.length - 1; i >= 0; i--) {
       const e = this.entities[i];
-      const dx = playerPos.x - e.x;
-      const dz = playerPos.z - e.z;
-      const d = Math.hypot(dx, dz);
+      const dxp = playerPos.x - e.x;
+      const dzp = playerPos.z - e.z;
+      const dPlayer = Math.hypot(dxp, dzp); // actual distance (catch + speed tier)
 
-      if (d < KILL_RADIUS) {
+      if (dPlayer < KILL_RADIUS) {
         caught = true;
-        nearest = Math.min(nearest, d);
+        nearest = Math.min(nearest, dPlayer);
         continue;
       }
-      if (d > DESPAWN) {
+      if (dPlayer > DESPAWN) {
         this.scene.remove(e.group);
         this.entities.splice(i, 1);
-        continue; // leaving; don't count toward "nearest"
+        continue;
       }
+      nearest = Math.min(nearest, dPlayer);
 
-      nearest = Math.min(nearest, d);
-      const inv = 1 / (d || 1);
-      e.x += dx * inv * SPEED * dt;
-      e.z += dz * inv * SPEED * dt;
-      e.group.position.set(e.x, 0, e.z);
-      e.group.rotation.y = Math.atan2(dx, dz); // face the player (eyes forward)
+      // Within CLOSE_RANGE the entity senses you directly: it locks its target to
+      // your real position every frame (so you can't hide by going quiet nearby),
+      // but it also slows to BASE_SPEED. Farther out it only knows the last ping.
+      const inClose = dPlayer < CLOSE_RANGE;
+      if (inClose) {
+        e.tx = playerPos.x;
+        e.tz = playerPos.z;
+      }
+      const dtx = e.tx - e.x;
+      const dtz = e.tz - e.z;
+      const dTarget = Math.hypot(dtx, dtz);
+      if (dTarget > 0.1) {
+        const speed = inClose ? BASE_SPEED : CHASE_SPEED;
+        const step = (speed * dt) / dTarget;
+        e.x += dtx * step;
+        e.z += dtz * step;
+        e.group.position.set(e.x, 0, e.z);
+      }
+      // Always face the player so the eyes track you.
+      e.group.rotation.y = Math.atan2(dxp, dzp);
     }
     this.nearest = nearest;
     return caught;

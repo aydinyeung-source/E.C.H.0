@@ -6,7 +6,8 @@
 // -----------------------------------------------------------------------------
 
 const EYE_HEIGHT = 1.7;
-const MOVE_SPEED = 3.4;        // units/second — a slow, uneasy walk
+const MOVE_SPEED = 5.1;        // units/second — brisk walk (1.5x the old pace)
+const RUN_SPEED = 7.6;         // while running mode is on and energy remains
 const PLAYER_RADIUS = 0.35;    // collision radius on the XZ plane
 const PITCH_LIMIT = Math.PI / 2 - 0.05;
 
@@ -23,6 +24,8 @@ export class Player {
     this.pitch = 0;
     this.keys = new Set();
     this.sensitivity = BASE_SENSITIVITY; // live-adjustable via the settings slider
+    this.running = false; // set by the game (q + energy); uses RUN_SPEED when true
+    this.moving = false;  // did the player actually move this frame (for energy drain)
     this.euler = new THREE.Euler(0, 0, 0, "YXZ"); // yaw then pitch, no roll
     this._bindInput();
     this._apply();
@@ -34,6 +37,8 @@ export class Player {
     this.yaw = 0;
     this.pitch = 0;
     this.keys.clear();
+    this.running = false;
+    this.moving = false;
     this._apply();
   }
 
@@ -55,6 +60,7 @@ export class Player {
   }
 
   update(dt, world) {
+    this.moving = false;
     if (this.isLocked) this._move(dt, world);
     this._apply();
   }
@@ -68,6 +74,8 @@ export class Player {
     if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) strafe -= 1;
 
     if (fwd !== 0 || strafe !== 0) {
+      this.moving = true;
+      const speed = this.running ? RUN_SPEED : MOVE_SPEED;
       const sin = Math.sin(this.yaw);
       const cos = Math.cos(this.yaw);
       // Forward is -Z at yaw 0; right is +X. Combine and normalise so diagonal
@@ -76,7 +84,7 @@ export class Player {
       let dz = fwd * -cos + strafe * -sin;
       const len = Math.hypot(dx, dz);
       if (len > 0) {
-        const step = (MOVE_SPEED * dt) / len;
+        const step = (speed * dt) / len;
         this.pos.x += dx * step;
         this.pos.z += dz * step;
       }

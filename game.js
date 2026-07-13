@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.19.1";
+const VERSION = "v2.20.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -150,9 +150,12 @@ const RUN_DRAIN = 7;   // energy per second while running and moving
 const WALK_REGEN = 4;  // energy per second regained while walking (not running)
 const SONAR_COST = 4;  // energy per sonar reveal
 
-// Crucifix: your only defence. Brandishing it breaks everything nearby off you.
-const WARD_RADIUS = 14; // metres
-const WARD_TIME = 7;    // seconds they flee for
+// Crucifix: the panic button, and rare. Brandishing it does three things at once
+// for WARD_TIME seconds: BLINDS every entity in the world (not just the nearest),
+// fires a free reveal, and floods you with adrenaline (a speed burst).
+const WARD_TIME = 7;        // seconds of blindness + speed
+const WARD_SPEED_BOOST = 1.45;
+let boostTimer = 0;
 
 // Torch: shows you a slice of what's ahead — but shine it at something and you
 // ENRAGE it. Runs on batteries, which are their own pickup.
@@ -300,7 +303,11 @@ function useSelected() {
     audio.pickup();
   } else if (s.type === "crucifix") {
     consumeSelected();
-    entities.repel(player.pos, WARD_RADIUS, WARD_TIME);
+    entities.blindAll(WARD_TIME); // EVERY entity, at any distance
+    boostTimer = WARD_TIME;       // adrenaline
+    // A free reveal that costs no energy and gives nothing away — they're blind.
+    sonar.pulse(player.pos);
+    radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
     audio.ward();
     wardFlash.classList.remove("hidden");
     void wardFlash.offsetWidth; // restart the CSS animation
@@ -368,8 +375,13 @@ function startRun(rawSeedText, label, isDaily) {
   energy = ENERGY_MAX;
   runMode = false;
   resetHotbar();
+  // You always set out with one crucifix and one meat — a single escape and a
+  // single meal, so you're never dead on arrival with nothing to fall back on.
+  addItem("crucifix", 1);
+  addItem("meat", 1);
   torchOn = false;
   torchBattery = 0;
+  boostTimer = 0;
   updateRunButton();
   radar.clear();
   audio.init(); // this is called from a click, so audio is allowed to start
@@ -689,6 +701,14 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05); // clamp long frames (tab switch)
   last = now;
+
+  // Crucifix adrenaline: a temporary speed multiplier.
+  if (boostTimer > 0) {
+    boostTimer -= dt;
+    player.boost = WARD_SPEED_BOOST;
+  } else {
+    player.boost = 1;
+  }
 
   // Apply run intent before moving: you can only run with energy to spare.
   player.running = runMode && energy > 0;

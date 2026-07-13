@@ -30,12 +30,12 @@ const CHASE_SPEED = Math.min(BASE_SPEED * 2.5, PLAYER_RUN_SPEED * 0.85);
 const CLOSE_RANGE = 5;              // metres; inside this the entity slows to 1x
 const LOS_MEMORY = 2;               // seconds it keeps chasing after losing SIGHT
 const PING_MEMORY = 3;              // seconds a sonar ping exposes you for
-const FLEE_SPEED = CHASE_SPEED;     // how fast a warded entity runs away
 const KILL_RADIUS = 0.9;            // contact distance (XZ) that ends the run
 const ENTITY_RADIUS = 0.35;         // collision radius, so it can't clip walls
 const REPATH_INTERVAL = 0.5;        // seconds between A* recomputes while blind
-const SPAWN_MIN = 14;
-const SPAWN_MAX = 24;
+const SPAWN_MIN = 16;
+const SPAWN_MAX = 34;
+const MIN_SEPARATION = 22;          // keep spawns well apart from each other
 const DESPAWN = 52;                 // remove if it drifts this far from the player
 const FIRST_DELAY = 10;             // seconds of grace at the start of a run
 const SPAWN_MIN_DISTANCE = 12;      // ...and nothing spawns until you've ventured out
@@ -70,7 +70,7 @@ export class EntitySystem {
   // can't SEE you, they lose you completely and stop chasing.
   hearSonar(x, z) {
     for (const e of this.entities) {
-      if (e.fleeTimer > 0) continue; // a warded entity isn't listening
+      if (e.blindTimer > 0) continue; // a blinded entity hears nothing
       e.tx = x;
       e.tz = z;
       e.trackTimer = Math.max(e.trackTimer, PING_MEMORY);
@@ -78,33 +78,47 @@ export class EntitySystem {
     }
   }
 
-  // Brandishing a crucifix: everything within `radius` breaks off, loses you and
-  // flees for `duration` seconds. This also snaps it out of a torch rage.
-  repel(playerPos, radius, duration) {
-    let affected = 0;
+  // Brandishing a crucifix BLINDS EVERY ENTITY for `duration` seconds — not just
+  // the nearest one, and regardless of distance. A blinded entity can't see you,
+  // can't hear you, can't track you and can't catch you: it just gropes around
+  // where it stands. This is your escape window.
+  blindAll(duration) {
     for (const e of this.entities) {
-      if (Math.hypot(e.x - playerPos.x, e.z - playerPos.z) > radius) continue;
-      e.fleeTimer = duration;
+      e.blindTimer = duration;
       e.trackTimer = 0;  // it loses you entirely
-      e.enrageTimer = 0; // and calms down
+      e.enrageTimer = 0; // and it snaps out of any torch rage
       e.path = null;
-      affected++;
     }
-    return affected;
+    return this.entities.length;
   }
 
   // Caught in the torch beam. An ENRAGED entity knows exactly where you are
   // regardless of walls or sight, and never slows down to stalk — it just comes.
   enrage(entity, duration) {
-    if (entity.fleeTimer > 0) return; // a warded one is busy running
+    if (entity.blindTimer > 0) return; // a blinded one can't be enraged
     entity.enrageTimer = Math.max(entity.enrageTimer, duration);
   }
 
   _spawn(playerPos) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = SPAWN_MIN + Math.random() * (SPAWN_MAX - SPAWN_MIN);
-    const x = playerPos.x + Math.cos(angle) * dist;
-    const z = playerPos.z + Math.sin(angle) * dist;
+    // Spread them out: try a few ring positions and take the first that isn't
+    // crowding an existing entity. Two of them converging on you from the same
+    // corridor is unsurvivable — they need to come from different places.
+    let x = 0;
+    let z = 0;
+    for (let attempt = 0; attempt < 14; attempt++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = SPAWN_MIN + Math.random() * (SPAWN_MAX - SPAWN_MIN);
+      x = playerPos.x + Math.cos(angle) * dist;
+      z = playerPos.z + Math.sin(angle) * dist;
+      let clear = true;
+      for (const other of this.entities) {
+        if (Math.hypot(x - other.x, z - other.z) < MIN_SEPARATION) {
+          clear = false;
+          break;
+        }
+      }
+      if (clear) break; // otherwise fall through with the last candidate
+    }
 
     const group = new THREE.Group();
     const body = new THREE.Mesh(this.bodyGeo, this.bodyMat);
@@ -124,7 +138,7 @@ export class EntitySystem {
       group, x, z,
       tx: x, tz: z,       // last known player position
       trackTimer: 0,      // >0 while it still knows where you are
-      fleeTimer: 0,       // >0 while warded off by a crucifix
+      blindTimer: 0,      // >0 while blinded by a crucifix
       enrageTimer: 0,     // >0 while enraged by the torch beam
       path: null,
       pathTimer: 0,
@@ -160,21 +174,13 @@ export class EntitySystem {
         continue;
       }
 
-      // --- Warded off (crucifix) --------------------------------------------
-      // It has broken off entirely: it can't see you, can't catch you, and runs.
-      if (e.fleeTimer > 0) {
-        e.fleeTimer -= dt;
+      // --- Blinded (crucifix) -----------------------------------------------
+      // It can't see, hear, track OR catch you. It just gropes around in place.
+      if (e.blindTimer > 0) {
+        e.blindTimer -= dt;
         e.canSee = false;
         nearest = Math.min(nearest, dPlayer);
-        const fx = e.x - playerPos.x;
-        const fz = e.z - playerPos.z;
-        const fd = Math.hypot(fx, fz) || 1;
-        _v.set(e.x + (fx / fd) * FLEE_SPEED * dt, 0, e.z + (fz / fd) * FLEE_SPEED * dt);
-        world.collide(_v, ENTITY_RADIUS);
-        e.x = _v.x;
-        e.z = _v.z;
-        e.group.position.set(e.x, 0, e.z);
-        e.group.rotation.y = Math.atan2(fx, fz); // facing away
+        e.group.rotation.y += dt * 1.6; // turning blindly on the spot
         continue;
       }
 

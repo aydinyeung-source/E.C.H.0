@@ -9,17 +9,18 @@
 // is always something out there to find.
 // -----------------------------------------------------------------------------
 
-const COUNT = 8;         // items live around the player at once
+const COUNT = 13;        // items live around the player at once (was 8)
 const PICK_RADIUS = 1.5; // how close you must be to take one
-const MIN_D = 10;        // relocate distance range from the player
-const MAX_D = 42;
+const MIN_D = 8;         // relocate distance range from the player — closer now,
+const MAX_D = 34;        // so there's more to find and less starving
 export const MEAT_ENERGY = 40;
 
-// Weighted item table. The torch is the rarest thing out here.
+// Weighted item table. Crucifixes are now RARE — they're a full escape button,
+// so finding them constantly would defang the whole game. The torch is rarer.
 const ITEM_TABLE = [
-  ["meat", 0.55],
-  ["crucifix", 0.18],
-  ["battery", 0.20],
+  ["meat", 0.62],
+  ["battery", 0.22],
+  ["crucifix", 0.09],
   ["torch", 0.07],
 ];
 

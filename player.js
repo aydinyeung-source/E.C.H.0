@@ -40,6 +40,7 @@ export class Player {
     this.running = false; // set by the game (q + energy); uses RUN_SPEED when true
     this.moving = false;  // did the player actually move this frame (for energy drain)
     this.enabled = false; // the game drives this: true only while actually playing
+    this.boost = 1;       // speed multiplier (a crucifix grants one briefly)
     this.touchFwd = 0;    // analog move input from the mobile joystick (-1..1)
     this.touchStrafe = 0;
     this.bobPhase = 0;    // stride phase for the head bob
@@ -57,6 +58,7 @@ export class Player {
     this.keys.clear();
     this.running = false;
     this.moving = false;
+    this.boost = 1;
     this.touchFwd = 0;
     this.touchStrafe = 0;
     this.bobPhase = 0;
@@ -121,7 +123,7 @@ export class Player {
     const mag = Math.min(1, Math.hypot(fwd, strafe));
     if (mag > 0.05) {
       this.moving = true;
-      const speed = this.running ? RUN_SPEED : MOVE_SPEED;
+      const speed = (this.running ? RUN_SPEED : MOVE_SPEED) * this.boost;
       const sin = Math.sin(this.yaw);
       const cos = Math.cos(this.yaw);
       // Forward is -Z at yaw 0; right is +X. Normalise the direction, then scale

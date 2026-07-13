@@ -11,19 +11,27 @@ import { RUN_SPEED as PLAYER_RUN_SPEED } from "./player.js";
 // own business — and they will happily keep doing that forever if you leave them
 // alone. The world is populated; it is not reacting to you.
 //
-// What wakes them is the SONAR. It is a sound nothing down here has ever made,
-// and everything within earshot turns toward it. That's the whole bargain of the
-// game: the only way to see is to announce yourself.
+// Awareness is TWO-STAGE, and the distinction is the whole stealth game:
 //
-// A woken entity hunts you. It hunts using:
-//   * SIGHT  — a clear sightline within SIGHT_RANGE locks onto your real position
-//   * SOUND  — a sonar ping within HEAR_RADIUS gives you away for PING_MEMORY
-// Lose both and, after the timer lapses, it forgets you and goes back to
-// wandering. They can't walk through walls: with a sightline they beeline,
-// otherwise they A*-path around the maze.
+//   1. SOUND -> INVESTIGATE. A sonar ping within HEAR_RADIUS doesn't tell them
+//      where YOU are — it tells them where the NOISE was. They break off what
+//      they were doing and walk over to look. If you've moved on by the time
+//      they get there, they find nothing, lose interest, and go back to
+//      wandering. Pinging marks a SPOT, not you.
+//
+//   2. SIGHT -> HUNT. They only actually come for you once they SEE you: a clear
+//      sightline within SIGHT_RANGE. That's when they lock onto your real
+//      position and give chase. Break the sightline and they keep coming for
+//      LOS_MEMORY seconds, then lose you.
+//
+// So a ping in a corridor you're about to leave is survivable. A ping while
+// standing in their line of sight is not.
+//
+// They can't walk through walls: with a sightline they beeline, otherwise they
+// A*-path around the maze.
 //
 // Special states:
-//   * ENRAGED (torch beam in the face) — tracks you through walls, never stalks
+//   * ENRAGED (torch beam in the face) — hunts you through walls, never stalks
 //   * BLINDED (crucifix)               — can't see/hear/track/catch you at all
 // -----------------------------------------------------------------------------
 
@@ -31,27 +39,30 @@ const BODY_COLOR = 0x0a0a0a;
 const EYE_COLOR = 0xff1f1f;
 
 const WANDER_SPEED = 1.3;           // an unbothered amble
-const BASE_SPEED = 2.4;             // "1x" — used within CLOSE_RANGE
+const INVESTIGATE_SPEED = 2.2;      // a purposeful walk toward a strange noise
+const BASE_SPEED = 2.2;             // "1x" — a hunter stalking you at close range
 // 2.5x when hunting from range — but HARD-CAPPED below the player's sprint so a
 // running player can always break away. Derived from the player's actual run
 // speed, so retuning that can never accidentally make them un-outrunnable.
+// (2.2*2.5 = 5.5 vs the 6.46 cap, so it lands at 5.5 — faster than your 5.1 walk,
+// comfortably slower than your 7.6 sprint.)
 const CHASE_SPEED = Math.min(BASE_SPEED * 2.5, PLAYER_RUN_SPEED * 0.85);
 
 const SIGHT_RANGE = 20;             // how far they can actually see you
-const HEAR_RADIUS = 40;             // how far a sonar ping carries
+const HEAR_RADIUS = 24;             // how far a sonar ping carries (was 40)
 const CLOSE_RANGE = 5;              // inside this a hunter slows to 1x and stalks
 const LOS_MEMORY = 2;               // seconds it keeps hunting after losing SIGHT
-const PING_MEMORY = 3;              // seconds a sonar ping exposes you for
+const INVESTIGATE_TIME = 9;         // seconds it spends looking into a noise
 
 const KILL_RADIUS = 0.9;
 const ENTITY_RADIUS = 0.35;
 const REPATH_INTERVAL = 0.5;
 
-// Population. They're placed out in the world, far away and out of sight — never
-// dropped on top of you — and kept well apart from each other so you never get
-// pincered down one corridor.
-const BASE_POP = 4;
-const MAX_POP = 7;
+// Population. Sparse: this place should feel abandoned, not infested. They're
+// placed far away and out of sight — never dropped on top of you — and kept well
+// apart from each other so you never get pincered down one corridor.
+const BASE_POP = 2;
+const MAX_POP = 4;
 const POP_MIN_DIST = 30;            // always well beyond SIGHT_RANGE
 const POP_MAX_DIST = 50;
 const MIN_SEPARATION = 22;
@@ -83,15 +94,18 @@ export class EntitySystem {
     }
   }
 
-  // The sonar: an unfamiliar sound. Everything within earshot turns toward it.
+  // The sonar: an unfamiliar sound. Anything within earshot breaks off and goes
+  // to LOOK — but this only tells it where the NOISE was, not where you are. If
+  // you're gone when it arrives, it finds nothing and drifts back to wandering.
+  // It will only actually hunt you if it SEES you.
   hearSonar(x, z) {
     let heard = 0;
     for (const e of this.entities) {
-      if (e.blindTimer > 0) continue;                     // deafened too
+      if (e.blindTimer > 0) continue;                           // deafened too
       if (Math.hypot(e.x - x, e.z - z) > HEAR_RADIUS) continue; // too far to carry
-      e.tx = x;
-      e.tz = z;
-      e.trackTimer = Math.max(e.trackTimer, PING_MEMORY);
+      e.nx = x; // where the noise came from
+      e.nz = z;
+      e.investigateTimer = INVESTIGATE_TIME;
       e.path = null;
       e.wanderPath = null; // it stops what it was doing
       heard++;
@@ -104,8 +118,9 @@ export class EntitySystem {
   blindAll(duration) {
     for (const e of this.entities) {
       e.blindTimer = duration;
-      e.trackTimer = 0;
-      e.enrageTimer = 0;
+      e.huntTimer = 0;        // it loses you entirely
+      e.investigateTimer = 0; // and forgets the noise it was chasing
+      e.enrageTimer = 0;      // and snaps out of any torch rage
       e.path = null;
     }
     return this.entities.length;
@@ -151,16 +166,49 @@ export class EntitySystem {
 
     this.entities.push({
       group, x, z,
-      tx: x, tz: z,      // last known player position (only once it knows)
-      trackTimer: 0,     // >0 while it knows where you are
+      tx: x, tz: z,        // last known PLAYER position (only once it has seen you)
+      nx: x, nz: z,        // where the last NOISE came from
+      huntTimer: 0,        // >0 while it's actively hunting you (needs sight)
+      investigateTimer: 0, // >0 while it's going to look into a noise
       blindTimer: 0,
       enrageTimer: 0,
       path: null,
       pathTimer: 0,
-      wanderPath: null,  // its own aimless route
+      wanderPath: null,    // its own aimless route
       wanderTimer: 0,
       canSee: false,
     });
+  }
+
+  // Walk to a fixed point, routing around walls. Used for investigating a noise.
+  _goTo(e, dt, world, gx, gz, speed) {
+    e.pathTimer -= dt;
+    if (!e.path || !e.path.length || e.pathTimer <= 0) {
+      e.path = world.findPath(e.x, e.z, gx, gz);
+      e.pathTimer = REPATH_INTERVAL;
+    }
+
+    let aimX = gx;
+    let aimZ = gz;
+    if (e.path && e.path.length) {
+      if (Math.hypot(e.path[0].x - e.x, e.path[0].z - e.z) < 0.6) e.path.shift();
+      if (e.path.length) {
+        aimX = e.path[0].x;
+        aimZ = e.path[0].z;
+      }
+    }
+
+    const ax = aimX - e.x;
+    const az = aimZ - e.z;
+    const d = Math.hypot(ax, az);
+    if (d < 0.4) return; // arrived — it stands here and looks around
+    const step = (speed * dt) / d;
+    _v.set(e.x + ax * step, 0, e.z + az * step);
+    world.collide(_v, ENTITY_RADIUS);
+    e.x = _v.x;
+    e.z = _v.z;
+    e.group.position.set(e.x, 0, e.z);
+    e.group.rotation.y = Math.atan2(ax, az);
   }
 
   // Unbothered: amble along its own route, pick a new one when it runs out.
@@ -229,9 +277,9 @@ export class EntitySystem {
       }
       nearest = Math.min(nearest, dPlayer);
 
-      // --- Does it know about you? ---
-      // Sight only works within SIGHT_RANGE — it's pitch black down here, they
-      // can't pick you out from across the level.
+      // --- Can it SEE you? That is the only thing that starts a hunt. ---
+      // Sight is bounded by SIGHT_RANGE — it's pitch black down here, they can't
+      // pick you out from across the level.
       const canSee =
         dPlayer < SIGHT_RANGE && !world.segmentBlocked(e.x, e.z, playerPos.x, playerPos.z);
       e.canSee = canSee; // the radar shows a live red dot for anything watching you
@@ -239,24 +287,34 @@ export class EntitySystem {
       const enraged = e.enrageTimer > 0;
       if (enraged) e.enrageTimer -= dt;
 
-      if (canSee || enraged) {
+      if (canSee) {
         e.tx = playerPos.x;
         e.tz = playerPos.z;
-        if (canSee) {
-          e.trackTimer = LOS_MEMORY;
-          e.path = null;
-        }
+        e.huntTimer = LOS_MEMORY; // it has you; it keeps this for 2s after losing sight
+        e.investigateTimer = 0;   // no need to search — it's looking right at you
+        e.path = null;
       } else {
-        e.trackTimer -= dt;
-        if (e.trackTimer > 0) {
+        e.huntTimer -= dt;
+        if (e.huntTimer > 0 || enraged) {
+          // Still knows where you are (recent sight, or torch-rage through walls).
           e.tx = playerPos.x;
           e.tz = playerPos.z;
         }
       }
 
-      // --- Unbothered: it never knew, or it has forgotten you. Back to its day.
-      if (!canSee && !enraged && e.trackTimer <= 0) {
-        this._wander(e, dt, world);
+      const hunting = canSee || enraged || e.huntTimer > 0;
+
+      // --- Investigating a noise (not you) ---
+      // It heard the sonar and is going to look. It does NOT know where you are —
+      // it only knows where the sound came from. Get out of the way and it will
+      // arrive, find nothing, and give up.
+      if (!hunting) {
+        if (e.investigateTimer > 0) {
+          e.investigateTimer -= dt;
+          this._goTo(e, dt, world, e.nx, e.nz, INVESTIGATE_SPEED);
+        } else {
+          this._wander(e, dt, world); // back to its day
+        }
         continue;
       }
 

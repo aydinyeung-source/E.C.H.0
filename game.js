@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.23.0";
+const VERSION = "v2.24.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -158,15 +158,34 @@ const WARD_SPEED_BOOST = 1.45;
 let boostTimer = 0;
 
 // Torch: shows you a slice of what's ahead — but shine it at something and you
-// ENRAGE it. Runs on batteries, which are their own pickup.
+// ENRAGE it.
+//
+// Torches are CONSUMABLE, not rechargeable. Every torch you find is full. The one
+// in your hand burns down; when it dies it is gone for good, and you break out the
+// next one from your stack. So each torch in the hotbar is one full burn, and
+// "how much light do I have left" is just "how many torches am I carrying".
+// (torchCharge is the charge of the one currently in hand; the stack count still
+// includes it, so the slot never empties out from under a lit torch.)
 const TORCH_MAX = 100;
-const TORCH_DRAIN = 5;      // battery per second while lit
-const BATTERY_CHARGE = 45;  // battery restored per cell
+const TORCH_DRAIN = 4;      // charge per second while lit -> ~25s per torch
 const TORCH_RANGE = 24;     // how far the beam reaches
 const TORCH_ANGLE = 0.38;   // half-angle of the beam (radians, ~22deg)
 const ENRAGE_TIME = 10;     // seconds an entity stays enraged after being lit
 let torchOn = false;
-let torchBattery = 0;
+let torchCharge = 0;
+
+// A torch burned out: bin it. The stack still contained the lit one, so this is
+// where it actually leaves your inventory.
+function consumeDeadTorch() {
+  for (const s of hotbar) {
+    if (s.type === "torch" && s.count > 0) {
+      s.count--;
+      if (s.count === 0) s.type = null;
+      renderHotbar();
+      return;
+    }
+  }
+}
 
 const torchLight = new THREE.SpotLight(0xfff0d0, 3.4, TORCH_RANGE + 4, TORCH_ANGLE, 0.5, 1.1);
 torchLight.visible = false;
@@ -224,7 +243,6 @@ function renderHotbar() {
     icon.classList.toggle("meat", filled && item.type === "meat");
     icon.classList.toggle("crucifix", filled && item.type === "crucifix");
     icon.classList.toggle("torch", filled && item.type === "torch");
-    icon.classList.toggle("battery", filled && item.type === "battery");
     el.querySelector(".slot-count").textContent = filled && item.count > 1 ? item.count : "";
   }
 }
@@ -292,14 +310,14 @@ function useSelected() {
     energy = Math.min(ENERGY_MAX, energy + MEAT_ENERGY);
     audio.pickup();
   } else if (s.type === "torch") {
-    // Not consumed — it's a tool. Toggles, and only lights if it has charge.
-    if (!torchOn && torchBattery <= 0) return;
-    torchOn = !torchOn;
-    audio.pickup();
-  } else if (s.type === "battery") {
-    if (torchBattery >= TORCH_MAX) return; // don't waste a cell
-    consumeSelected();
-    torchBattery = Math.min(TORCH_MAX, torchBattery + BATTERY_CHARGE);
+    if (torchOn) {
+      torchOn = false; // douse it — the remaining charge keeps for later
+    } else {
+      // Nothing lit in hand? Break out a fresh torch. It always starts full;
+      // it only leaves the stack once it has actually burned out.
+      if (torchCharge <= 0) torchCharge = TORCH_MAX;
+      torchOn = true;
+    }
     audio.pickup();
   } else if (s.type === "crucifix") {
     consumeSelected();
@@ -380,7 +398,7 @@ function startRun(rawSeedText, label, isDaily) {
   addItem("crucifix", 1);
   addItem("meat", 1);
   torchOn = false;
-  torchBattery = 0;
+  torchCharge = 0;
   boostTimer = 0;
   updateRunButton();
   radar.clear();
@@ -656,10 +674,11 @@ window.addEventListener("resize", () => {
 // through walls, and comes at full speed. Light is not free here.
 function updateTorch(dt) {
   if (torchOn) {
-    torchBattery -= TORCH_DRAIN * dt;
-    if (torchBattery <= 0) {
-      torchBattery = 0;
-      torchOn = false; // died on you
+    torchCharge -= TORCH_DRAIN * dt;
+    if (torchCharge <= 0) {
+      torchCharge = 0;
+      torchOn = false;
+      consumeDeadTorch(); // it died in your hand and is gone for good
     }
   }
   torchLight.visible = torchOn;
@@ -743,7 +762,7 @@ function loop(now) {
     // The torch gauge only appears once you actually own a torch.
     const showTorch = hasItem("torch");
     torchBar.classList.toggle("hidden", !showTorch);
-    if (showTorch) torchFill.style.width = (torchBattery / TORCH_MAX) * 100 + "%";
+    if (showTorch) torchFill.style.width = (torchCharge / TORCH_MAX) * 100 + "%";
 
     // 3D spatial audio: position each entity's panner, muffle it through walls,
     // and schedule its (spatialised) footsteps.

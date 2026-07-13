@@ -689,7 +689,7 @@ button.secondary:hover {
   font-size: 0.8rem;
 }
 
-/* Torch battery meter, tucked beside the energy bar. */
+/* Torch charge meter (the torch in your hand), beside the energy bar. */
 .hud-torch {
   position: fixed;
   bottom: 16px;
@@ -709,17 +709,11 @@ button.secondary:hover {
   transition: width 0.1s linear;
 }
 
-/* Torch and battery hotbar icons. */
+/* Torch hotbar icon. */
 .slot-icon.torch {
   border-radius: 3px;
   background: linear-gradient(180deg, #fff3c4 0%, #fff3c4 22%, #4a4a52 22%, #33333a 100%);
   box-shadow: 0 0 7px rgba(255, 240, 190, 0.6);
-}
-
-.slot-icon.battery {
-  border-radius: 3px;
-  background: linear-gradient(180deg, #d8d040 0%, #d8d040 18%, #2f7d4f 18%, #1f5636 100%);
-  box-shadow: 0 0 6px rgba(120, 220, 150, 0.45);
 }
 
 /* Pause overlay: fully black so the game view is instantly hidden. */

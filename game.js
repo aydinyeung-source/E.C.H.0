@@ -17,7 +17,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.14.0";
+const VERSION = "v2.15.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -611,8 +611,12 @@ function loop(now) {
       const t = Math.max(0, Math.min(1, (5 - near) / 4)); // 0 at 5m .. 1 at 1m
       heartTimer -= dt;
       if (heartTimer <= 0) {
-        audio.heartbeat(0.12 + t * 0.4, 0.85 + t * 0.9); // volume + playback rate
-        heartTimer = 1.15 - t * 0.85; // tempo: 1.15s at 5m .. 0.30s at 1m
+        // Louder, and only a slight pitch rise — a big rate jump made it sound
+        // chipmunky rather than frightened.
+        audio.heartbeat(0.4 + t * 0.5, 0.95 + t * 0.3);
+        // Tempo tops out around 128bpm. The old curve hit 0.30s (=200bpm), which
+        // no human heart does — it read as comical instead of panicked.
+        heartTimer = 1.05 - t * 0.58; // ~57bpm at 5m .. ~128bpm at 1m
       }
     } else {
       heartTimer = 0; // primed to beat the instant something closes in

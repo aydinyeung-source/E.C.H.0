@@ -58,8 +58,17 @@ export class AudioSystem {
       if (!AC) return;
       this.ctx = new AC();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 1;
-      this.master.connect(this.ctx.destination);
+      this.master.gain.value = 2.4; // the game was far too quiet
+      // A compressor lets us push the level hard without the harsh digital
+      // clipping you'd otherwise get when several sounds overlap.
+      const comp = this.ctx.createDynamicsCompressor();
+      comp.threshold.value = -18;
+      comp.knee.value = 24;
+      comp.ratio.value = 8;
+      comp.attack.value = 0.004;
+      comp.release.value = 0.22;
+      this.master.connect(comp);
+      comp.connect(this.ctx.destination);
     }
     if (this.ctx.state === "suspended") this.ctx.resume();
   }
@@ -120,8 +129,11 @@ export class AudioSystem {
     // 10m away lands at 10^-1.6 ~= 0.025 (-32dB) — i.e. completely inaudible,
     // which silenced every entity sound. refDistance 5 = full volume out to 5m,
     // then a gentle, natural falloff (half volume at 10m, ~1/3 at 16m).
-    panner.refDistance = 5;
-    panner.rolloffFactor = 1.0;
+    // refDistance 4 = full volume within 4m, then a clear, readable falloff.
+    // (It must NOT be tiny: with refDistance=1 the exponential curve buries
+    // anything past a few metres at -30dB, which is what made it all silent.)
+    panner.refDistance = 4;
+    panner.rolloffFactor = 1.1;
     panner.maxDistance = 60;
     return panner;
   }
@@ -190,7 +202,9 @@ export class AudioSystem {
         if (v.stepTimer <= 0) {
           this._footstepAt(v);
           const prox = 1 - d / FOOTSTEP_RANGE; // 0 far .. 1 close
-          v.stepTimer = 0.8 - prox * 0.45;     // 0.8s far .. 0.35s close
+          // Deliberate, measured pace — a slow approaching step is far more
+          // unsettling than a scurry.
+          v.stepTimer = 0.95 - prox * 0.42;    // 0.95s far .. 0.53s close
         }
       } else {
         v.stepTimer = 0.2;
@@ -198,21 +212,49 @@ export class AudioSystem {
     }
   }
 
-  // A dull footstep thud, routed through an entity's filter+panner.
+  // A clean, dry footfall — routed through the entity's filter+panner.
+  // Two layers: a crisp filtered-noise SCUFF (shoe on hard floor) over a tight
+  // low BODY. Both decay fast, so it reads as a sharp, deliberate step rather
+  // than a boomy thud — which is what makes it unsettling instead of cartoonish.
   _footstepAt(v) {
     const t = this.ctx.currentTime;
+
+    // Scuff: a short noise burst with a cubic decay, band-passed to the click
+    // region so it stays articulate.
+    const dur = 0.09;
+    const buf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * dur), this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      const decay = 1 - i / data.length;
+      data[i] = (Math.random() * 2 - 1) * decay * decay * decay;
+    }
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = buf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 1900;
+    bp.Q.value = 1.1;
+    const nGain = this.ctx.createGain();
+    nGain.gain.value = 0.7;
+    noise.connect(bp);
+    bp.connect(nGain);
+    nGain.connect(v.filter); // -> panner -> master
+    noise.start(t);
+    noise.stop(t + dur);
+
+    // Body: a tight low thump, cut short so it doesn't smear.
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     osc.type = "sine";
-    osc.frequency.setValueAtTime(95, t);
-    osc.frequency.exponentialRampToValueAtTime(42, t + 0.13);
+    osc.frequency.setValueAtTime(110, t);
+    osc.frequency.exponentialRampToValueAtTime(55, t + 0.09);
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.9, t + 0.012);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+    gain.gain.exponentialRampToValueAtTime(1.3, t + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
     osc.connect(gain);
-    gain.connect(v.filter); // -> panner -> master
+    gain.connect(v.filter);
     osc.start(t);
-    osc.stop(t + 0.22);
+    osc.stop(t + 0.16);
   }
 
   // --- Sonar hit cue --------------------------------------------------------

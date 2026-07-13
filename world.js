@@ -29,7 +29,7 @@ const WALL_T = 0.3;      // wall thickness
 // (CHUNK_CELLS^2 cells x 2 owned edges). A fixed budget means wall density —
 // and therefore difficulty — is the same in every chunk, instead of some coming
 // out wide open and others a dense maze.
-const WALLS_PER_CHUNK = 14;
+const WALLS_PER_CHUNK = 11;
 const BLOOD_CHANCE = 0.03; // fraction of individual walls that carry bloody writing
 const CHUNK_CELLS = 4;   // cells per chunk edge
 const CHUNK_SIZE = CELL * CHUNK_CELLS;
@@ -64,10 +64,12 @@ const WALL_VARIANT_WEIGHTS = [0.14, 0.16, 0.24, 0.22, 0.16, 0.08];
 // maze, a different seed a completely different one. Set before a run starts.
 let SEED = 0;
 const chunkWallCache = new Map(); // chunk key -> Set of edge keys carrying a wall
+const cellOpenCache = new Map();  // cell key -> Set of edges forced open (or null)
 
 export function setWorldSeed(seed) {
   SEED = seed >>> 0;
   chunkWallCache.clear(); // layouts depend on the seed
+  cellOpenCache.clear();
 }
 
 // --- Procedural textures ----------------------------------------------------
@@ -224,30 +226,50 @@ function rawWall(type, i, j) {
   return chunkWalls(cx, cy).has(type + ":" + i + ":" + j);
 }
 
-// A cell must never be boxed in on all four sides. If it would be, one edge is
-// deterministically knocked out. Pure function of the coords, so both chunks
-// sharing a border edge always agree on the result.
-function sealedOpening(i, j) {
-  const boxedIn =
-    rawWall(0, i, j) && rawWall(0, i, j + 1) && rawWall(1, i, j) && rawWall(1, i + 1, j);
-  if (!boxedIn) return null;
-  const pick = Math.floor(hash2(i, j, 999) * 4);
-  if (pick === 0) return "0:" + i + ":" + j;
-  if (pick === 1) return "0:" + i + ":" + (j + 1);
-  if (pick === 2) return "1:" + i + ":" + j;
-  return "1:" + (i + 1) + ":" + j;
+// NO DEAD ENDS: every cell is guaranteed at least TWO open edges, so you can
+// always walk through it rather than being funnelled into a pocket you have to
+// back out of. (A dead end is by definition a cell with only one exit; a sealed
+// cell has none.) If a cell has fewer than two openings we deterministically
+// knock out however many walls it takes. This only ever REMOVES walls, so a
+// neighbour's opening count can never be reduced by someone else's fix — the
+// result is stable and both chunks sharing a border edge always agree.
+function cellOpenings(i, j) {
+  const key = i + "," + j;
+  const cached = cellOpenCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const edges = [
+    ["0:" + i + ":" + j, rawWall(0, i, j)],             // south
+    ["0:" + i + ":" + (j + 1), rawWall(0, i, j + 1)],   // north
+    ["1:" + i + ":" + j, rawWall(1, i, j)],             // west
+    ["1:" + (i + 1) + ":" + j, rawWall(1, i + 1, j)],   // east
+  ];
+  const walled = edges.filter((e) => e[1]).map((e) => e[0]);
+  const need = 2 - (4 - walled.length); // how many more openings we must carve
+
+  let result = null;
+  if (need > 0 && walled.length > 0) {
+    result = new Set();
+    const start = Math.floor(hash2(i, j, 999) * walled.length);
+    for (let k = 0; k < need && k < walled.length; k++) {
+      result.add(walled[(start + k) % walled.length]);
+    }
+  }
+
+  if (cellOpenCache.size > 4000) cellOpenCache.clear(); // bound memory
+  cellOpenCache.set(key, result);
+  return result;
 }
 
 function wallPresent(type, i, j) {
   if (!rawWall(type, i, j)) return false;
   const id = type + ":" + i + ":" + j;
-  // This edge borders two cells; if either would be sealed and picked THIS edge
-  // as its opening, the wall is removed.
-  if (type === 0) {
-    if (sealedOpening(i, j) === id || sealedOpening(i, j - 1) === id) return false;
-  } else {
-    if (sealedOpening(i, j) === id || sealedOpening(i - 1, j) === id) return false;
-  }
+  // Each edge borders two cells; if EITHER of them needs this edge as one of its
+  // guaranteed openings, the wall comes out.
+  const own = cellOpenings(i, j);
+  if (own && own.has(id)) return false;
+  const neighbour = type === 0 ? cellOpenings(i, j - 1) : cellOpenings(i - 1, j);
+  if (neighbour && neighbour.has(id)) return false;
   return true;
 }
 

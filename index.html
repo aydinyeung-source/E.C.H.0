@@ -24,6 +24,14 @@
     <!-- Sonar radar (bottom-right, shown while playing). -->
     <canvas id="radar" class="radar hidden" width="180" height="180"></canvas>
 
+    <!-- Mobile on-screen controls: left half of the canvas drives movement and
+         the right half drives the camera; these buttons sit on the right. -->
+    <div class="mobile-controls hidden" id="mobileControls">
+      <button class="mc-btn" id="mcPing" type="button">PING</button>
+      <button class="mc-btn" id="mcRun" type="button">RUN</button>
+      <button class="mc-btn mc-pause" id="mcPause" type="button">II</button>
+    </div>
+
     <!-- Home screen. Shown until the pointer is locked. Corner panels for
          settings (top-left) and account (top-right); play controls centered. -->
     <div class="overlay" id="startOverlay">
@@ -35,7 +43,14 @@
           <input id="sensSlider" type="range" min="0.4" max="2.5" step="0.05" value="1" />
         </div>
         <div class="field">
-          <label for="sonarKey">Sonar key</label>
+          <label for="deviceMode">Device</label>
+          <select id="deviceMode">
+            <option value="pc">PC — mouse + keyboard</option>
+            <option value="mobile">Mobile — touch</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sonarKey">Sonar key <span class="sub">(PC)</span></label>
           <select id="sonarKey">
             <option value="mouse0">Left click</option>
             <option value="mouse2">Right click</option>

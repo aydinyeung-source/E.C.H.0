@@ -473,6 +473,54 @@ button.secondary:hover {
   pointer-events: none;
 }
 
+/* Mobile on-screen controls (right side; left half of the screen is the stick). */
+.mobile-controls {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none; /* only the buttons themselves are tappable */
+}
+
+.mc-btn {
+  position: fixed;
+  pointer-events: auto;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  padding: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  color: #bfffd0;
+  background: rgba(4, 20, 8, 0.55);
+  border: 1px solid rgba(57, 255, 20, 0.45);
+  box-shadow: none;
+  backdrop-filter: blur(4px);
+}
+
+.mc-btn:active,
+.mc-btn.active {
+  background: rgba(57, 255, 20, 0.28);
+  color: #eafff0;
+}
+
+#mcPing {
+  right: 22px;
+  bottom: 210px;
+}
+
+#mcRun {
+  right: 112px;
+  bottom: 210px;
+}
+
+.mc-pause {
+  top: 16px;
+  right: 16px;
+  width: 46px;
+  height: 46px;
+  font-size: 0.8rem;
+}
+
 /* Pause overlay: fully black so the game view is instantly hidden. */
 #pauseOverlay {
   background: #000;

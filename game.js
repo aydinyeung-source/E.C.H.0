@@ -16,7 +16,7 @@ import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.8.0";
+const VERSION = "v2.9.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -40,6 +40,11 @@ const resumeButton = document.getElementById("resumeButton");
 const homeButton = document.getElementById("homeButton");
 const jumpscareOverlay = document.getElementById("jumpscare");
 const radarCanvas = document.getElementById("radar");
+const deviceSelect = document.getElementById("deviceMode");
+const mobileControls = document.getElementById("mobileControls");
+const mcRun = document.getElementById("mcRun");
+const mcPing = document.getElementById("mcPing");
+const mcPause = document.getElementById("mcPause");
 
 // --- Three.js core ----------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -69,6 +74,31 @@ const radar = new Radar(radarCanvas);
 let dead = false;    // true once an entity has caught the player
 let stepTimer = 0;   // countdown to the next footstep sound
 let heartTimer = 0;  // countdown to the next heartbeat (tempo scales with proximity)
+let playing = false; // actively in a run (pointer-locked on PC, or started on mobile)
+
+// --- Device mode (PC or Mobile) ---------------------------------------------
+// On PC we use pointer lock; on mobile we drive everything from touch, so the
+// "playing" state can't be derived from the pointer lock alone.
+const DEVICE_KEY = "echo-device";
+const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+let deviceMode = localStorage.getItem(DEVICE_KEY) || (isTouchDevice ? "mobile" : "pc");
+deviceSelect.value = deviceMode;
+deviceSelect.addEventListener("change", () => {
+  deviceMode = deviceSelect.value;
+  localStorage.setItem(DEVICE_KEY, deviceMode);
+});
+
+function setPlaying(v) {
+  playing = v;
+  player.enabled = v;
+  if (!v) {
+    player.touchFwd = 0;
+    player.touchStrafe = 0;
+  }
+  energyBar.classList.toggle("hidden", !v);
+  radarCanvas.classList.toggle("hidden", !v);
+  mobileControls.classList.toggle("hidden", !(v && deviceMode === "mobile"));
+}
 let energy = 100;    // 0..ENERGY_MAX; drained by running/sonar, refilled by meat
 let runMode = false; // toggled with Q
 
@@ -137,12 +167,38 @@ function startRun(rawSeedText, label, isDaily) {
   world.update(player.pos); // rebuild chunks around spawn from the new seed
   entities.reset();
   pickups.reset(player.pos);
+  mcRun.classList.remove("active");
   seedTag.textContent = (label ? label + " · " : "") + "SEED " + run.seed;
-  canvas.requestPointerLock();
+
+  // PC goes through pointer lock (which starts play on lock); mobile starts now.
+  if (deviceMode === "pc") canvas.requestPointerLock();
+  else beginPlay();
 }
 
-// An entity reached the player: jumpscare, then end the run. Releasing the
-// pointer lock (after the scare) drives the game-over overlay below.
+// Enter (or resume) active play. On PC this runs from the pointerlockchange
+// handler; on mobile it's called directly.
+function beginPlay() {
+  startOverlay.classList.add("hidden");
+  gameOverOverlay.classList.add("hidden");
+  pauseOverlay.classList.add("hidden");
+  setPlaying(true);
+  sonar.pulse(player.pos); // opening ping (free, doesn't alert entities)
+  radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
+}
+
+function showPause() {
+  setPlaying(false);
+  pauseOverlay.classList.remove("hidden");
+}
+
+function showGameOver() {
+  setPlaying(false);
+  submitScoreIfDaily();
+  gameOverDistance.textContent = Math.round(run.maxDistance) + "m";
+  gameOverOverlay.classList.remove("hidden");
+}
+
+// An entity reached the player: jumpscare, then end the run.
 function die() {
   if (dead) return;
   dead = true;
@@ -150,7 +206,11 @@ function die() {
   audio.jumpscare();
   setTimeout(() => {
     jumpscareOverlay.classList.add("hidden");
-    document.exitPointerLock();
+    if (deviceMode === "pc" && document.pointerLockElement === canvas) {
+      document.exitPointerLock(); // the unlock handler shows the game-over screen
+    } else {
+      showGameOver();
+    }
   }, 1200);
 }
 
@@ -182,27 +242,15 @@ sensSlider.addEventListener("input", () => {
 });
 
 // --- Pointer lock + sonar input ---------------------------------------------
+// PC only: Esc releases the pointer, which pauses (or shows game over if dead).
 document.addEventListener("pointerlockchange", () => {
-  const locked = document.pointerLockElement === canvas;
-  if (locked) {
-    startOverlay.classList.add("hidden");
-    gameOverOverlay.classList.add("hidden");
-    pauseOverlay.classList.add("hidden");
-    energyBar.classList.remove("hidden");
-    radarCanvas.classList.remove("hidden");
-    sonar.pulse(player.pos); // opening ping (free, doesn't alert entities)
-    radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
-    return;
-  }
-  // Unlocked: either dead (game over) or just paused (black overlay; run persists).
-  energyBar.classList.add("hidden");
-  radarCanvas.classList.add("hidden");
-  if (dead) {
-    submitScoreIfDaily();
-    gameOverDistance.textContent = Math.round(run.maxDistance) + "m";
-    gameOverOverlay.classList.remove("hidden");
-  } else {
-    pauseOverlay.classList.remove("hidden");
+  if (deviceMode !== "pc") return;
+  if (document.pointerLockElement === canvas) {
+    beginPlay();
+  } else if (dead) {
+    showGameOver();
+  } else if (playing) {
+    showPause();
   }
 });
 
@@ -219,13 +267,85 @@ tryAgainButton.addEventListener("click", () => {
   startOverlay.classList.remove("hidden");
 });
 
-// Resume the paused run (re-lock) or bail out to the home screen.
-resumeButton.addEventListener("click", () => canvas.requestPointerLock());
+// Resume the paused run or bail out to the home screen.
+resumeButton.addEventListener("click", () => {
+  if (deviceMode === "pc") canvas.requestPointerLock(); // lock -> beginPlay()
+  else beginPlay();
+});
 homeButton.addEventListener("click", () => {
   submitScoreIfDaily();
+  setPlaying(false);
   pauseOverlay.classList.add("hidden");
   startOverlay.classList.remove("hidden");
 });
+
+// --- Mobile on-screen buttons -----------------------------------------------
+mcPing.addEventListener("click", () => fireSonar());
+mcRun.addEventListener("click", () => {
+  runMode = !runMode;
+  mcRun.classList.toggle("active", runMode);
+});
+mcPause.addEventListener("click", () => {
+  if (playing) showPause();
+});
+
+// --- Mobile touch: left half = movement stick, right half = camera -----------
+const JOY_RADIUS = 70;        // px of drag for full-speed movement
+const TOUCH_LOOK_SENS = 1.6;  // multiplier on look sensitivity for touch drags
+let moveTouchId = null;
+let moveStartX = 0;
+let moveStartY = 0;
+let lookTouchId = null;
+let lookLastX = 0;
+let lookLastY = 0;
+
+canvas.addEventListener("touchstart", (e) => {
+  if (!playing || deviceMode !== "mobile") return;
+  for (const t of e.changedTouches) {
+    if (t.clientX < window.innerWidth / 2) {
+      if (moveTouchId === null) {
+        moveTouchId = t.identifier;
+        moveStartX = t.clientX;
+        moveStartY = t.clientY;
+      }
+    } else if (lookTouchId === null) {
+      lookTouchId = t.identifier;
+      lookLastX = t.clientX;
+      lookLastY = t.clientY;
+    }
+  }
+  e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener("touchmove", (e) => {
+  if (!playing || deviceMode !== "mobile") return;
+  for (const t of e.changedTouches) {
+    if (t.identifier === moveTouchId) {
+      const dx = t.clientX - moveStartX;
+      const dy = t.clientY - moveStartY;
+      player.touchStrafe = Math.max(-1, Math.min(1, dx / JOY_RADIUS));
+      player.touchFwd = Math.max(-1, Math.min(1, -dy / JOY_RADIUS)); // drag up = forward
+    } else if (t.identifier === lookTouchId) {
+      player.look((t.clientX - lookLastX) * TOUCH_LOOK_SENS, (t.clientY - lookLastY) * TOUCH_LOOK_SENS);
+      lookLastX = t.clientX;
+      lookLastY = t.clientY;
+    }
+  }
+  e.preventDefault();
+}, { passive: false });
+
+function endTouch(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier === moveTouchId) {
+      moveTouchId = null;
+      player.touchFwd = 0;
+      player.touchStrafe = 0;
+    }
+    if (t.identifier === lookTouchId) lookTouchId = null;
+  }
+}
+canvas.addEventListener("touchend", endTouch);
+canvas.addEventListener("touchcancel", endTouch);
 
 // --- Sonar keybind (default left click; changeable in Settings) -------------
 // Mouse buttons are stored as "mouse0"/"mouse2"; keys as their KeyboardEvent
@@ -239,7 +359,7 @@ sonarKeySelect.addEventListener("change", () => {
 });
 
 function fireSonar() {
-  if (document.pointerLockElement !== canvas) return;
+  if (!playing) return;
   sonar.pulse(player.pos);
   radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
   entities.hearSonar(player.pos.x, player.pos.z); // the sound draws entities in
@@ -265,7 +385,7 @@ window.addEventListener("resize", () => {
 // --- Distance tracking ------------------------------------------------------
 // "Distance explored" = furthest straight-line distance reached from spawn.
 function updateDistance() {
-  if (document.pointerLockElement !== canvas) return;
+  if (!playing) return;
   const dx = player.pos.x - SPAWN.x;
   const dz = player.pos.z - SPAWN.z;
   const d = Math.sqrt(dx * dx + dz * dz);
@@ -288,8 +408,8 @@ function loop(now) {
   pickups.animate(now * 0.001); // throbbing meat
   updateDistance();
 
-  // Entities only hunt while actively playing (locked and alive).
-  if (document.pointerLockElement === canvas && !dead) {
+  // Entities only hunt while actively playing (and alive).
+  if (playing && !dead) {
     // Running drains energy while actually moving.
     if (player.running && player.moving) {
       energy = Math.max(0, energy - RUN_DRAIN * dt);

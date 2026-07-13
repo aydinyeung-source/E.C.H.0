@@ -28,7 +28,9 @@ export class Radar {
     this.blips = [];
   }
 
-  // Snapshot walls + entities within range of a pulse. `now` is in seconds.
+  // Snapshot walls + entities within range of a pulse, but ONLY those in direct
+  // line of sight — the pulse can't see around corners, so neither can the radar.
+  // `now` is in seconds.
   ping(origin, now, world, entityList) {
     for (const chunk of world.chunks.values()) {
       for (const w of chunk.bounds) {
@@ -36,6 +38,17 @@ export class Radar {
         const cz = (w.minZ + w.maxZ) / 2;
         const d = Math.hypot(cx - origin.x, cz - origin.z);
         if (d > RANGE) continue;
+
+        // Stop the ray just short of the wall, or it would "hit" itself.
+        if (d > 0.6) {
+          const ux = (cx - origin.x) / d;
+          const uz = (cz - origin.z) / d;
+          const stop = d - 0.4;
+          if (world.segmentBlocked(origin.x, origin.z, origin.x + ux * stop, origin.z + uz * stop)) {
+            continue; // hidden behind another wall
+          }
+        }
+
         const revealAt = now + d / WAVE_SPEED;
         // Represent the wall box as a line along its long axis.
         if (w.maxX - w.minX >= w.maxZ - w.minZ) {
@@ -48,6 +61,7 @@ export class Radar {
     for (const e of entityList) {
       const d = Math.hypot(e.x - origin.x, e.z - origin.z);
       if (d > RANGE) continue;
+      if (world.segmentBlocked(origin.x, origin.z, e.x, e.z)) continue; // behind a wall
       this.blips.push({ wall: false, x1: e.x, z1: e.z, revealAt: now + d / WAVE_SPEED });
     }
   }

@@ -37,6 +37,9 @@ export class Player {
     this.sensitivity = BASE_SENSITIVITY; // live-adjustable via the settings slider
     this.running = false; // set by the game (q + energy); uses RUN_SPEED when true
     this.moving = false;  // did the player actually move this frame (for energy drain)
+    this.enabled = false; // the game drives this: true only while actually playing
+    this.touchFwd = 0;    // analog move input from the mobile joystick (-1..1)
+    this.touchStrafe = 0;
     this.bobPhase = 0;    // stride phase for the head bob
     this.bobAmount = 0;   // 0..1, eased so the bob starts/stops smoothly
     this.euler = new THREE.Euler(0, 0, 0, "YXZ"); // yaw then pitch, no roll
@@ -52,6 +55,8 @@ export class Player {
     this.keys.clear();
     this.running = false;
     this.moving = false;
+    this.touchFwd = 0;
+    this.touchStrafe = 0;
     this.bobPhase = 0;
     this.bobAmount = 0;
     this._apply();
@@ -61,12 +66,18 @@ export class Player {
     return document.pointerLockElement === this.dom;
   }
 
+  // Turn the camera. Used by pointer-lock mouse movement (PC) and by touch drags
+  // on the right half of the screen (mobile).
+  look(dx, dy) {
+    this.yaw -= dx * this.sensitivity;
+    this.pitch -= dy * this.sensitivity;
+    this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
+  }
+
   _bindInput() {
     document.addEventListener("mousemove", (e) => {
       if (!this.isLocked) return;
-      this.yaw -= e.movementX * this.sensitivity;
-      this.pitch -= e.movementY * this.sensitivity;
-      this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
+      this.look(e.movementX, e.movementY);
     });
     window.addEventListener("keydown", (e) => this.keys.add(e.code));
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
@@ -76,7 +87,7 @@ export class Player {
 
   update(dt, world) {
     this.moving = false;
-    if (this.isLocked) this._move(dt, world);
+    if (this.enabled) this._move(dt, world);
     this._updateBob(dt);
     this._apply();
   }
@@ -93,25 +104,28 @@ export class Player {
   }
 
   _move(dt, world) {
-    let fwd = 0;
-    let strafe = 0;
+    // Keys (PC) and the touch joystick (mobile) feed the same two axes.
+    let fwd = this.touchFwd;
+    let strafe = this.touchStrafe;
     if (this.keys.has("KeyW") || this.keys.has("ArrowUp")) fwd += 1;
     if (this.keys.has("KeyS") || this.keys.has("ArrowDown")) fwd -= 1;
     if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) strafe += 1;
     if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) strafe -= 1;
 
-    if (fwd !== 0 || strafe !== 0) {
+    // Magnitude gives the joystick analog speed; keys naturally reach 1.
+    const mag = Math.min(1, Math.hypot(fwd, strafe));
+    if (mag > 0.05) {
       this.moving = true;
       const speed = this.running ? RUN_SPEED : MOVE_SPEED;
       const sin = Math.sin(this.yaw);
       const cos = Math.cos(this.yaw);
-      // Forward is -Z at yaw 0; right is +X. Combine and normalise so diagonal
-      // movement isn't faster than cardinal movement.
-      let dx = fwd * -sin + strafe * cos;
-      let dz = fwd * -cos + strafe * -sin;
+      // Forward is -Z at yaw 0; right is +X. Normalise the direction, then scale
+      // by magnitude so diagonals aren't faster and the stick stays analog.
+      const dx = fwd * -sin + strafe * cos;
+      const dz = fwd * -cos + strafe * -sin;
       const len = Math.hypot(dx, dz);
       if (len > 0) {
-        const step = (speed * dt) / len;
+        const step = (speed * dt * mag) / len;
         this.pos.x += dx * step;
         this.pos.z += dz * step;
       }

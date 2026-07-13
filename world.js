@@ -25,7 +25,11 @@ import { installReveal } from "./reveal.js";
 const CELL = 6;          // cell size / hallway width (world units)
 const WALL_H = 3.2;      // wall + ceiling height (low and oppressive)
 const WALL_T = 0.3;      // wall thickness
-const WALL_PROB = 0.5;   // chance a given cell edge carries a wall
+// Every chunk gets EXACTLY this many walls out of its 32 candidate edges
+// (CHUNK_CELLS^2 cells x 2 owned edges). A fixed budget means wall density —
+// and therefore difficulty — is the same in every chunk, instead of some coming
+// out wide open and others a dense maze.
+const WALLS_PER_CHUNK = 14;
 const BLOOD_CHANCE = 0.03; // fraction of individual walls that carry bloody writing
 const CHUNK_CELLS = 4;   // cells per chunk edge
 const CHUNK_SIZE = CELL * CHUNK_CELLS;
@@ -47,18 +51,33 @@ const _s = new THREE.Vector3();
 const _c = new THREE.Color();
 const _xAxis = new THREE.Vector3(1, 0, 0);
 
+// Grime levels for the wall variants: pristine -> filthy, picked PER WALL.
+// Index 0 is unnaturally clean — an untouched wall in a rotting hallway is its
+// own kind of wrong. Each variant draws its own random blotches, so no two wall
+// types share a stain pattern.
+const WALL_GRIME_LEVELS = [0.0, 0.1, 0.3, 0.55, 0.8, 1.0];
+// How often each variant appears (sums to 1). Clean walls show up often enough
+// to be unsettling; filthy is still the norm.
+const WALL_VARIANT_WEIGHTS = [0.14, 0.16, 0.24, 0.22, 0.16, 0.08];
+
 // The world seed (Minecraft-style): the same seed always produces the same
 // maze, a different seed a completely different one. Set before a run starts.
 let SEED = 0;
+const chunkWallCache = new Map(); // chunk key -> Set of edge keys carrying a wall
+
 export function setWorldSeed(seed) {
   SEED = seed >>> 0;
+  chunkWallCache.clear(); // layouts depend on the seed
 }
 
 // --- Procedural textures ----------------------------------------------------
 // Drawn once on a <canvas> so there are no external image assets. Walls come in
 // grimy variants (some with bloody writing) for an uncanny, detailed look; the
 // sonar reveals them out of the dark.
-function makeWallTexture(kind, variant) {
+// `grime` (0..1) drives how filthy the wall is. At 0 you get an unnaturally
+// clean, pristine wall — which reads as deeply wrong next to a filthy one. Every
+// variant draws its own random blotches, so no two walls share a stain pattern.
+function makeWallTexture(grime, kind) {
   const c = document.createElement("canvas");
   c.width = c.height = 256;
   const g = c.getContext("2d");
@@ -66,19 +85,20 @@ function makeWallTexture(kind, variant) {
   g.fillStyle = "#c9b83a"; // base wallpaper yellow
   g.fillRect(0, 0, 256, 256);
 
-  // Faint vertical wallpaper stripes.
+  // Faint vertical wallpaper stripes (always present, even when clean).
   for (let x = 0; x < 256; x += 16) {
     g.fillStyle = (x / 16) % 2 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.03)";
     g.fillRect(x, 0, 8, 256);
   }
-  // Grime speckle.
-  for (let i = 0; i < 2200; i++) {
-    g.fillStyle = `rgba(40,30,0,${Math.random() * 0.08})`;
+  // Grime speckle, scaled by filthiness.
+  const speckles = Math.floor(2600 * grime);
+  for (let i = 0; i < speckles; i++) {
+    g.fillStyle = `rgba(40,30,0,${Math.random() * 0.09})`;
     const s = Math.random() * 3;
     g.fillRect(Math.random() * 256, Math.random() * 256, s, s);
   }
-  // Dark water stains (more on the "stain" variant).
-  const stains = kind === "stain" ? 16 : 6;
+  // Dark water stains, also scaled by filthiness.
+  const stains = Math.round(18 * grime);
   for (let i = 0; i < stains; i++) {
     const rx = Math.random() * 256, ry = Math.random() * 256, rr = 10 + Math.random() * 42;
     const grd = g.createRadialGradient(rx, ry, 0, rx, ry, rr);
@@ -91,10 +111,10 @@ function makeWallTexture(kind, variant) {
   g.fillStyle = "rgba(0,0,0,0.22)";
   g.fillRect(0, 200, 256, 5);
 
-  // Bloody scrawl.
+  // Bloody scrawl (only on the dedicated blood material).
   if (kind === "blood") {
     const words = ["GET OUT", "NO EXIT", "TURN BACK", "IT SEES YOU"];
-    const word = words[variant % words.length];
+    const word = words[Math.floor(Math.random() * words.length)];
     g.save();
     g.translate(22, 112);
     g.rotate(-0.08);
@@ -138,12 +158,25 @@ function makeFloorTexture() {
   return t;
 }
 
-// Deterministic 2D hash -> [0, 1). Folds in the world seed so the layout is
-// unique per seed, yet identical for everyone using that seed.
-function hash2(x, y, salt) {
+// Deterministic hashes, folding in the world seed so the layout is unique per
+// seed yet identical for everyone using that seed.
+function hashInt(x, y, salt) {
   let h = (x | 0) * 374761393 + (y | 0) * 668265263 + salt * 2654435761 + SEED * 40503;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+function hash2(x, y, salt) {
+  return hashInt(x, y, salt) / 4294967296;
+}
+
+function mulberry32(a) {
+  return function () {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 // The edges around spawn cell (0,0) are forced open so the player never starts
@@ -153,9 +186,79 @@ function isSpawnEdge(type, i, j) {
   return j === 0 && (i === 0 || i === 1);
 }
 
-function wallPresent(type, i, j) {
+// Which of a chunk's 32 candidate edges carry walls. The candidates are shuffled
+// with a seeded RNG and exactly WALLS_PER_CHUNK are taken, so EVERY chunk has the
+// same wall density — no lucky wide-open chunks, no impassably dense ones.
+function chunkWalls(cx, cy) {
+  const key = cx + ":" + cy;
+  const cached = chunkWallCache.get(key);
+  if (cached) return cached;
+
+  const cands = [];
+  const i0 = cx * CHUNK_CELLS;
+  const j0 = cy * CHUNK_CELLS;
+  for (let di = 0; di < CHUNK_CELLS; di++) {
+    for (let dj = 0; dj < CHUNK_CELLS; dj++) {
+      cands.push("0:" + (i0 + di) + ":" + (j0 + dj)); // south edge
+      cands.push("1:" + (i0 + di) + ":" + (j0 + dj)); // west edge
+    }
+  }
+  const rng = mulberry32(hashInt(cx, cy, 7717));
+  for (let k = cands.length - 1; k > 0; k--) { // deterministic Fisher-Yates
+    const r = Math.floor(rng() * (k + 1));
+    const tmp = cands[k];
+    cands[k] = cands[r];
+    cands[r] = tmp;
+  }
+
+  const set = new Set(cands.slice(0, WALLS_PER_CHUNK));
+  if (chunkWallCache.size > 400) chunkWallCache.clear(); // bound memory
+  chunkWallCache.set(key, set);
+  return set;
+}
+
+function rawWall(type, i, j) {
   if (isSpawnEdge(type, i, j)) return false;
-  return hash2(i, j, type === 0 ? 101 : 202) < WALL_PROB;
+  const cx = Math.floor(i / CHUNK_CELLS);
+  const cy = Math.floor(j / CHUNK_CELLS);
+  return chunkWalls(cx, cy).has(type + ":" + i + ":" + j);
+}
+
+// A cell must never be boxed in on all four sides. If it would be, one edge is
+// deterministically knocked out. Pure function of the coords, so both chunks
+// sharing a border edge always agree on the result.
+function sealedOpening(i, j) {
+  const boxedIn =
+    rawWall(0, i, j) && rawWall(0, i, j + 1) && rawWall(1, i, j) && rawWall(1, i + 1, j);
+  if (!boxedIn) return null;
+  const pick = Math.floor(hash2(i, j, 999) * 4);
+  if (pick === 0) return "0:" + i + ":" + j;
+  if (pick === 1) return "0:" + i + ":" + (j + 1);
+  if (pick === 2) return "1:" + i + ":" + j;
+  return "1:" + (i + 1) + ":" + j;
+}
+
+function wallPresent(type, i, j) {
+  if (!rawWall(type, i, j)) return false;
+  const id = type + ":" + i + ":" + j;
+  // This edge borders two cells; if either would be sealed and picked THIS edge
+  // as its opening, the wall is removed.
+  if (type === 0) {
+    if (sealedOpening(i, j) === id || sealedOpening(i, j - 1) === id) return false;
+  } else {
+    if (sealedOpening(i, j) === id || sealedOpening(i - 1, j) === id) return false;
+  }
+  return true;
+}
+
+// Deterministic per-wall texture variant (weighted), so adjacent walls differ.
+function wallVariant(type, i, j) {
+  let r = hash2(i, j, type === 0 ? 313 : 414);
+  for (let v = 0; v < WALL_VARIANT_WEIGHTS.length; v++) {
+    r -= WALL_VARIANT_WEIGHTS[v];
+    if (r <= 0) return v;
+  }
+  return WALL_VARIANT_WEIGHTS.length - 1;
 }
 
 export class World {
@@ -166,15 +269,15 @@ export class World {
 
     // Shared geometry/materials keep each chunk lightweight to build and drop.
     this.boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    // Normal (non-bloody) wall variants; a chunk picks one for visual variety.
-    this.wallMats = [
-      new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("grime", 0) }),
-      new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("grime", 1) }),
-      new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("stain", 2) }),
-    ];
+    // Wall variants from pristine to filthy. Index 0 is unnaturally clean — an
+    // untouched wall in a rotting hallway is its own kind of wrong. Each variant
+    // draws its own random blotches, so walls don't repeat the same stain map.
+    this.wallMats = WALL_GRIME_LEVELS.map(
+      (grime) => new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture(grime, "grime") })
+    );
     // Rare bloody-writing material, applied to only a scattered few walls so it
     // stays a shock rather than plastering every surface.
-    this.bloodMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture("blood", 0) });
+    this.bloodMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeWallTexture(0.5, "blood") });
     this.floorMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: makeFloorTexture() });
     this.ceilMat = new THREE.MeshLambertMaterial({ color: COL_CEIL });
 
@@ -194,11 +297,11 @@ export class World {
     const flickers = []; // panel indices that strobe (see animate())
     const i0 = cx * CHUNK_CELLS;
     const j0 = cy * CHUNK_CELLS;
-    const wallMat = this.wallMats[Math.floor(hash2(cx, cy, 777) * this.wallMats.length)];
 
-    // --- Walls: gather present edges, splitting off a rare few for bloody
-    //     writing so it's an occasional shock rather than on every wall. ---
-    const normalInsts = [];
+    // --- Walls: gather present edges. Each wall independently picks a grime
+    //     variant (so neighbours don't share a stain pattern, and some come out
+    //     unnaturally clean), with a rare few carrying bloody writing instead. ---
+    const buckets = this.wallMats.map(() => []); // one instance list per variant
     const bloodInsts = [];
     for (let di = 0; di < CHUNK_CELLS; di++) {
       for (let dj = 0; dj < CHUNK_CELLS; dj++) {
@@ -207,13 +310,15 @@ export class World {
         if (wallPresent(0, i, j)) {
           // South edge: spans x across the cell, thin in z.
           const inst = { px: (i + 0.5) * CELL, pz: j * CELL, sx: CELL, sz: WALL_T };
-          (hash2(i, j, 811) < BLOOD_CHANCE ? bloodInsts : normalInsts).push(inst);
+          if (hash2(i, j, 811) < BLOOD_CHANCE) bloodInsts.push(inst);
+          else buckets[wallVariant(0, i, j)].push(inst);
           bounds.push({ minX: i * CELL, maxX: (i + 1) * CELL, minZ: j * CELL - WALL_T / 2, maxZ: j * CELL + WALL_T / 2 });
         }
         if (wallPresent(1, i, j)) {
           // West edge: spans z across the cell, thin in x.
           const inst = { px: i * CELL, pz: (j + 0.5) * CELL, sx: WALL_T, sz: CELL };
-          (hash2(i, j, 911) < BLOOD_CHANCE ? bloodInsts : normalInsts).push(inst);
+          if (hash2(i, j, 911) < BLOOD_CHANCE) bloodInsts.push(inst);
+          else buckets[wallVariant(1, i, j)].push(inst);
           bounds.push({ minX: i * CELL - WALL_T / 2, maxX: i * CELL + WALL_T / 2, minZ: j * CELL, maxZ: (j + 1) * CELL });
         }
       }
@@ -236,7 +341,7 @@ export class World {
       mesh.instanceMatrix.needsUpdate = true;
       group.add(mesh);
     };
-    addWalls(normalInsts, wallMat);
+    buckets.forEach((list, v) => addWalls(list, this.wallMats[v]));
     addWalls(bloodInsts, this.bloodMat);
 
     // --- Floor & ceiling planes ---------------------------------------------
@@ -337,6 +442,48 @@ export class World {
         this.chunks.delete(key);
       }
     }
+  }
+
+  // Line-of-sight test on the XZ plane: is any wall between (x1,z1) and (x2,z2)?
+  // Standard slab method against each wall's AABB. Used so the sonar/radar only
+  // report what the player can actually see, not things around corners.
+  segmentBlocked(x1, z1, x2, z2) {
+    const dx = x2 - x1;
+    const dz = z2 - z1;
+    for (const chunk of this.chunks.values()) {
+      for (const w of chunk.bounds) {
+        let tmin = 0;
+        let tmax = 1;
+        let hit = true;
+
+        if (Math.abs(dx) < 1e-9) {
+          if (x1 < w.minX || x1 > w.maxX) hit = false;
+        } else {
+          let t1 = (w.minX - x1) / dx;
+          let t2 = (w.maxX - x1) / dx;
+          if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
+          tmin = Math.max(tmin, t1);
+          tmax = Math.min(tmax, t2);
+          if (tmin > tmax) hit = false;
+        }
+
+        if (hit) {
+          if (Math.abs(dz) < 1e-9) {
+            if (z1 < w.minZ || z1 > w.maxZ) hit = false;
+          } else {
+            let t1 = (w.minZ - z1) / dz;
+            let t2 = (w.maxZ - z1) / dz;
+            if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
+            tmin = Math.max(tmin, t1);
+            tmax = Math.min(tmax, t2);
+            if (tmin > tmax) hit = false;
+          }
+        }
+
+        if (hit) return true;
+      }
+    }
+    return false;
   }
 
   // Push a circle (the player) out of any wall box it overlaps, on the XZ plane.

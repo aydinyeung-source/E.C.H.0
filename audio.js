@@ -41,6 +41,32 @@ export class AudioSystem {
     osc.stop(t + 0.22);
   }
 
+  // One "lub-dub" heartbeat. `volume` scales loudness; `rate` (>1) tightens and
+  // raises the pitch of each thud, so the beat feels frantic as it speeds up.
+  // The game drives the TEMPO by calling this on a shrinking interval.
+  heartbeat(volume, rate = 1) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this._thump(t, volume, rate);
+    this._thump(t + 0.17 / rate, volume * 0.72, rate); // the softer second beat
+  }
+
+  _thump(at, volume, rate) {
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    const dur = 0.16 / rate;
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(62 * rate, at);
+    osc.frequency.exponentialRampToValueAtTime(34 * rate, at + dur);
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume), at + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + dur + 0.05);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(at);
+    osc.stop(at + dur + 0.08);
+  }
+
   // A short, bright blip when you eat meat.
   pickup() {
     if (!this.ctx) return;

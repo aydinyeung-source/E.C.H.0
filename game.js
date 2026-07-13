@@ -12,10 +12,11 @@ import { SonarSystem } from "./sonar.js";
 import { EntitySystem } from "./entities.js";
 import { AudioSystem } from "./audio.js";
 import { Pickups } from "./pickups.js";
+import { Radar } from "./radar.js";
 import { Menu } from "./menu.js";
 import { submitDistance } from "./supabase.js";
 
-const VERSION = "v2.7.0";
+const VERSION = "v2.8.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -38,6 +39,7 @@ const pauseOverlay = document.getElementById("pauseOverlay");
 const resumeButton = document.getElementById("resumeButton");
 const homeButton = document.getElementById("homeButton");
 const jumpscareOverlay = document.getElementById("jumpscare");
+const radarCanvas = document.getElementById("radar");
 
 // --- Three.js core ----------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -62,9 +64,11 @@ const sonar = new SonarSystem();
 const entities = new EntitySystem(scene);
 const audio = new AudioSystem();
 const pickups = new Pickups(scene);
+const radar = new Radar(radarCanvas);
 
 let dead = false;    // true once an entity has caught the player
 let stepTimer = 0;   // countdown to the next footstep sound
+let heartTimer = 0;  // countdown to the next heartbeat (tempo scales with proximity)
 let energy = 100;    // 0..ENERGY_MAX; drained by running/sonar, refilled by meat
 let runMode = false; // toggled with Q
 
@@ -120,8 +124,10 @@ function startRun(rawSeedText, label, isDaily) {
   run.maxDistance = 0;
   dead = false;
   stepTimer = 0;
+  heartTimer = 0;
   energy = ENERGY_MAX;
   runMode = false;
+  radar.clear();
   audio.init(); // this is called from a click, so audio is allowed to start
   gameOverOverlay.classList.add("hidden");
   pauseOverlay.classList.add("hidden");
@@ -183,11 +189,14 @@ document.addEventListener("pointerlockchange", () => {
     gameOverOverlay.classList.add("hidden");
     pauseOverlay.classList.add("hidden");
     energyBar.classList.remove("hidden");
+    radarCanvas.classList.remove("hidden");
     sonar.pulse(player.pos); // opening ping (free, doesn't alert entities)
+    radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
     return;
   }
   // Unlocked: either dead (game over) or just paused (black overlay; run persists).
   energyBar.classList.add("hidden");
+  radarCanvas.classList.add("hidden");
   if (dead) {
     submitScoreIfDaily();
     gameOverDistance.textContent = Math.round(run.maxDistance) + "m";
@@ -232,6 +241,7 @@ sonarKeySelect.addEventListener("change", () => {
 function fireSonar() {
   if (document.pointerLockElement !== canvas) return;
   sonar.pulse(player.pos);
+  radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
   entities.hearSonar(player.pos.x, player.pos.z); // the sound draws entities in
   energy = Math.max(0, energy - SONAR_COST);      // revealing costs energy
 }
@@ -307,7 +317,23 @@ function loop(now) {
     } else {
       stepTimer = 0.15; // primed to step almost immediately when one nears
     }
+
+    // Proximity heartbeat: kicks in inside 5m and accelerates from a slow heavy
+    // thud into a frantic flutter as the entity closes to 1m.
+    if (near < 5) {
+      const t = Math.max(0, Math.min(1, (5 - near) / 4)); // 0 at 5m .. 1 at 1m
+      heartTimer -= dt;
+      if (heartTimer <= 0) {
+        audio.heartbeat(0.12 + t * 0.4, 0.85 + t * 0.9); // volume + playback rate
+        heartTimer = 1.15 - t * 0.85; // tempo: 1.15s at 5m .. 0.30s at 1m
+      }
+    } else {
+      heartTimer = 0; // primed to beat the instant something closes in
+    }
   }
+
+  // Radar redraws every frame so blips fade on the same 15s curve as the walls.
+  radar.draw(now * 0.001, player.pos, player.yaw);
 
   renderer.render(scene, camera);
   requestAnimationFrame(loop);

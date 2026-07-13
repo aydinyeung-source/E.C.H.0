@@ -459,6 +459,20 @@ button.secondary:hover {
   transition: width 0.1s linear;
 }
 
+/* Sonar radar, bottom-right. */
+.radar {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 5;
+  width: 170px;
+  height: 170px;
+  border-radius: 50%;
+  background: #000;
+  box-shadow: 0 0 18px rgba(57, 255, 20, 0.18);
+  pointer-events: none;
+}
+
 /* Pause overlay: fully black so the game view is instantly hidden. */
 #pauseOverlay {
   background: #000;

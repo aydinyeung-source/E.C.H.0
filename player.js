@@ -11,6 +11,17 @@ const RUN_SPEED = 7.6;         // while running mode is on and energy remains
 const PLAYER_RADIUS = 0.35;    // collision radius on the XZ plane
 const PITCH_LIMIT = Math.PI / 2 - 0.05;
 
+// Head bob: strides per second, and how far the camera moves. Y bobs twice per
+// stride, X sways once per stride. Kept small to avoid motion sickness.
+const WALK_STRIDE = 1.7;
+const RUN_STRIDE = 2.6;
+const WALK_BOB_Y = 0.045;
+const WALK_BOB_X = 0.028;
+const RUN_BOB_Y = 0.075;
+const RUN_BOB_X = 0.045;
+
+const _right = new THREE.Vector3();
+
 // Default look sensitivity (radians of rotation per pixel of mouse movement).
 // Higher than the original tuning; the settings slider scales this at runtime.
 export const BASE_SENSITIVITY = 0.004;
@@ -26,6 +37,8 @@ export class Player {
     this.sensitivity = BASE_SENSITIVITY; // live-adjustable via the settings slider
     this.running = false; // set by the game (q + energy); uses RUN_SPEED when true
     this.moving = false;  // did the player actually move this frame (for energy drain)
+    this.bobPhase = 0;    // stride phase for the head bob
+    this.bobAmount = 0;   // 0..1, eased so the bob starts/stops smoothly
     this.euler = new THREE.Euler(0, 0, 0, "YXZ"); // yaw then pitch, no roll
     this._bindInput();
     this._apply();
@@ -39,6 +52,8 @@ export class Player {
     this.keys.clear();
     this.running = false;
     this.moving = false;
+    this.bobPhase = 0;
+    this.bobAmount = 0;
     this._apply();
   }
 
@@ -62,7 +77,19 @@ export class Player {
   update(dt, world) {
     this.moving = false;
     if (this.isLocked) this._move(dt, world);
+    this._updateBob(dt);
     this._apply();
+  }
+
+  // Advance the stride phase and ease the bob in/out so it's zero when standing
+  // still, a gentle roll when walking, and tighter/faster when sprinting.
+  _updateBob(dt) {
+    const target = this.moving ? 1 : 0;
+    this.bobAmount += (target - this.bobAmount) * Math.min(1, dt * 8); // smooth ramp
+    if (this.moving) {
+      const stride = this.running ? RUN_STRIDE : WALK_STRIDE; // strides per second
+      this.bobPhase += dt * stride * Math.PI * 2;
+    }
   }
 
   _move(dt, world) {
@@ -95,7 +122,19 @@ export class Player {
   }
 
   _apply() {
-    this.camera.position.copy(this.pos);
+    // Head bob: Y at twice the stride rate (each footfall), X once per stride
+    // (the side-to-side weight shift). Amplitude scales with walk/run and eases
+    // to zero when standing still.
+    const ampY = (this.running ? RUN_BOB_Y : WALK_BOB_Y) * this.bobAmount;
+    const ampX = (this.running ? RUN_BOB_X : WALK_BOB_X) * this.bobAmount;
+    const offY = Math.sin(this.bobPhase * 2) * ampY;
+    const offX = Math.sin(this.bobPhase) * ampX;
+
+    // Sway along the camera's right vector so it stays relative to where you face.
+    _right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    this.camera.position.copy(this.pos).addScaledVector(_right, offX);
+    this.camera.position.y += offY;
+
     this.euler.set(this.pitch, this.yaw, 0);
     this.camera.quaternion.setFromEuler(this.euler);
   }

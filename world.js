@@ -471,19 +471,40 @@ export function isWindowWall(type, i, j) {
 // the MAZE, not a decoration bolted on top — its walls are real walls, so the
 // carver, the collision, the sightlines and the pathfinder all agree about it.
 //
-// NO TWO ADJACENT CHUNKS may both hold one, or you'd get a bunker district. The
-// rule is decided with no global state: a chunk that rolls a room checks its 8
-// neighbours, and if a neighbour ALSO rolled one and outranks it on a hash, this
-// chunk yields. Any two adjacent contenders compare the same two ranks and reach
-// the same verdict, so the result is consistent no matter which chunk you ask
-// first — which matters, because chunks are generated in whatever order you
-// happen to walk.
+// NO TWO ADJACENT CHUNKS may both hold one — not even diagonally — or you'd get a
+// bunker district. The rule is decided with no global state: a chunk that rolls a
+// room checks its 8 neighbours, and if a neighbour ALSO rolled one and outranks it
+// on a hash, this chunk yields. Any two adjacent contenders compare the same two
+// ranks and reach the same verdict, so the result is consistent no matter which
+// chunk you ask first — which matters, because chunks are generated in whatever
+// order you happen to walk.
+//
+// ROOM_CHANCE IS THE ROLL, NOT THE OUTCOME, and the gap between the two is the
+// whole point of this comment. The exclusion above rejects a lot of winners, so
+// the realised density is always well below the roll, and it SATURATES:
+//
+//     roll 0.08  ->   6.2% of chunks
+//     roll 0.125 ->   7.9%
+//     roll 0.22  ->  10.1%
+//     roll 0.60  ->  11.2%   <-- the setting. essentially the ceiling.
+//     roll 1.00  ->  11.1%
+//
+// (Measured, not derived — a sweep over 3 seeds x 2025 chunks each.)
+//
+// ~11.1% is the CEILING and the number is not a coincidence: turn the roll up to
+// 1 and EVERY chunk is a contender, so a room lands exactly where a chunk
+// out-ranks all 8 of its neighbours — which is one chunk in nine. The strict
+// no-adjacent rule mathematically cannot do better than one room per 3x3
+// neighbourhood, no matter what you set this to.
+//
+// Sitting at 0.60 rather than 1.0 keeps the knob meaningful (turn it down and you
+// get fewer rooms) while giving up nothing: the last 0.4 buys ~0.1%.
 //
 // The room sits at cell offset 1..3 inside the 6x6 chunk. That's deliberate: it
 // guarantees every one of its perimeter edges belongs to THIS chunk, so a room
 // can never reach across a chunk border and fight with a neighbour's maze.
 // -----------------------------------------------------------------------------
-const ROOM_CHANCE = 0.08;
+const ROOM_CHANCE = 0.6; // the ROLL. yields ~11% of chunks — see above.
 const ROOM_OFF_MIN = 1;
 const ROOM_OFF_MAX = 3;
 

@@ -61,8 +61,12 @@ const WINDOW_H = 2.2;      // top of the opening (lintel sits above it)
 // cells, so these small per-cell odds add up to roughly two scraps of meat, one
 // torch and one crucifix in every 36x36m chunk. Things are lying about all over
 // the place, the way they would be in a building people left in a hurry.
-const CELL_MEAT_CHANCE = 0.05;
-const CELL_TORCH_CHANCE = 0.03;
+// HALVED. At 5%/3% a chunk held ~1.8 meat and ~1 torch, which is a scrap of meat
+// every 20m of corridor — you were tripping over supplies, and an item you find
+// constantly is an item you never have to plan around. Everything is now half as
+// common, and every one of these has to be worth stopping for.
+const CELL_MEAT_CHANCE = 0.025;
+const CELL_TORCH_CHANCE = 0.015;
 // The crucifix stays RARE, and deliberately out of step with the other two. At 3%
 // a cell it worked out at ~1 per chunk — one every 37m of corridor — and an item
 // that blinds every entity in the world, wipes their memory of you and hands you a
@@ -70,7 +74,7 @@ const CELL_TORCH_CHANCE = 0.03;
 // being a panic button when you own thirty of them. 0.5% puts it at ~1 per 6
 // chunks: still far commoner than it used to be, but you'll think before spending
 // one.
-const CELL_CRUCIFIX_CHANCE = 0.005;
+const CELL_CRUCIFIX_CHANCE = 0.0025;
 const CHUNK_CELLS = 6;   // cells per chunk edge (bigger = longer unbroken halls)
 const CHUNK_SIZE = CELL * CHUNK_CELLS;
 // Chunks are 6x6 cells (36u). At radius 1 the WORST case — standing at a chunk's

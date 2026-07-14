@@ -110,21 +110,12 @@ const REPATH_INTERVAL = 0.5;
 // you real quiet time.
 const BASE_POP = 1;
 const MAX_POP = 3;
-// SPAWNS ARE NOW HALF AS FREQUENT. Both rates are doubled together, because
-// halving only one of them wouldn't do it: the cooldown governs how fast a gap
-// gets refilled, and POP_PER_CELL governs how fast a new gap even opens. Slow one
-// and the other still drags the population up at the old pace.
-//
-// The CAP is deliberately unchanged (still 3). "Rarer" should mean they turn up
-// less often, not that the maze can never get dangerous — a long run still ends up
-// crowded, it just takes twice as much exploring to get there.
-//
 // The score is CELLS UNCOVERED, so population scales off that: one more of them
-// per 40 new cells you've walked into (was 20). It tracks how much you've EXPLORED
-// rather than how far you got from spawn, so a player who doubles back and
-// searches carefully still draws a crowd eventually.
-const POP_PER_METRE = 40;           // cells, not metres — the name is a fossil
-const PLACE_COOLDOWN = 90;          // seconds between any two new arrivals (was 45)
+// per 20 new cells you've walked into. It tracks how much you've EXPLORED rather
+// than how far you got from spawn, so a player who doubles back and searches
+// carefully still draws a crowd eventually.
+const POP_PER_METRE = 20;           // cells, not metres — the name is a fossil
+const PLACE_COOLDOWN = 45;          // seconds between any two new arrivals
 // THE ARRIVAL RING.
 //
 // The MINIMUM is basically gone. It used to be a big number (40m) doing a job that

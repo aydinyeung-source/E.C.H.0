@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.51.0";
+const VERSION = "v2.52.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -57,7 +57,7 @@ const settingsBody = document.getElementById("settingsBody");
 const playtestTag = document.getElementById("playtestTag");
 const deathTag = document.getElementById("deathTag");
 const dangerBar = document.getElementById("dangerBar");
-const dangerFill = document.getElementById("dangerFill");
+const dangerBars = document.getElementById("dangerBars");
 const doorBar = document.getElementById("doorBar");
 const doorFill = document.getElementById("doorFill");
 const doorLabel = document.getElementById("doorLabel");
@@ -1079,18 +1079,42 @@ function updateTorch(dt) {
 // radar costs you a ping and fifteen seconds of cooldown. This is free, and it is
 // vague on purpose: it can tell you something is close without ever telling you
 // which way to run.
-const DANGER_RANGE = 30; // beyond this the bar is empty
+const DANGER_RANGE = 30; // beyond this, nothing is lit
+const DANGER_BARS = 8;
+
+// Each bar is taller than the last, so the graph rises towards the face at the
+// right-hand end. The shape alone tells you which way is bad.
+function buildDangerBars() {
+  dangerBars.innerHTML = "";
+  for (let i = 0; i < DANGER_BARS; i++) {
+    const b = document.createElement("div");
+    b.className = "danger-bar";
+    b.style.height = 7 + (i / (DANGER_BARS - 1)) * 15 + "px"; // 7px -> 22px
+    dangerBars.appendChild(b);
+  }
+}
 
 function updateDangerBar() {
   const d = entities.nearest;
   const frac = Number.isFinite(d) ? Math.max(0, Math.min(1, 1 - d / DANGER_RANGE)) : 0;
+  const lit = Math.ceil(frac * DANGER_BARS); // 0 = nothing near you
 
-  dangerFill.style.width = frac * 100 + "%";
-  // Green through amber to red. Hue 120 -> 0 as it closes on you.
-  const hue = 120 * (1 - frac);
-  const light = 38 + frac * 14;
-  dangerFill.style.background = `hsl(${hue}, 85%, ${light}%)`;
-  dangerFill.style.boxShadow = frac > 0.05 ? `0 0 ${4 + frac * 12}px hsla(${hue}, 90%, 55%, 0.7)` : "none";
+  for (let i = 0; i < DANGER_BARS; i++) {
+    const b = dangerBars.children[i];
+    const on = i < lit;
+    b.classList.toggle("lit", on);
+    if (!on) {
+      b.style.background = "";
+      b.style.boxShadow = "";
+      continue;
+    }
+    // Each bar carries its OWN colour by position — green at the left, red at the
+    // right — so the colour says how bad it is without you having to count bars.
+    const hue = 120 * (1 - i / (DANGER_BARS - 1));
+    b.style.background = `hsl(${hue}, 88%, 52%)`;
+    b.style.boxShadow = `0 0 6px hsla(${hue}, 90%, 55%, 0.75)`;
+  }
+
   dangerBar.classList.toggle("critical", frac > 0.8);
 }
 
@@ -1313,6 +1337,7 @@ versionTag.textContent = VERSION;
 versionLabel.textContent = VERSION;
 buildHotbar();
 buildTermPad();
+buildDangerBars();
 Menu.init().then(syncOfflineScores); // wait for the session before replaying
 Menu.refreshLeaderboard(todayUTC());
 requestAnimationFrame(loop);

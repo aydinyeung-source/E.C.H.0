@@ -650,39 +650,73 @@ button.secondary:hover {
    --------------------------------------------------------------------------- */
 .danger {
   position: fixed;
-  top: 40px;
+  top: 38px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 6;
-  width: min(260px, 46vw);
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.42);
   pointer-events: none;
 }
 
-.danger-track {
-  height: 7px;
-  border-radius: 999px;
-  border: 1px solid rgba(232, 227, 207, 0.18);
-  background: rgba(0, 0, 0, 0.55);
-  overflow: hidden;
+/* The two ends of the scale, drawn as what they mean. */
+.danger-icon {
+  width: 19px;
+  height: 19px;
+  flex: none;
+  margin-bottom: 1px;
 }
 
-.danger-fill {
-  height: 100%;
-  width: 0%;
-  border-radius: 999px;
-  /* Colour and width are both set from JS — see updateDangerBar(). */
-  transition: width 0.12s linear;
+.danger-icon.safe {
+  color: rgba(120, 220, 140, 0.5);
 }
 
-/* Right on top of you: the bar itself starts to panic. */
-.danger.critical .danger-track {
-  border-color: rgba(255, 60, 40, 0.7);
-  animation: dangerPulse 0.32s ease-in-out infinite;
+.danger-icon.scare {
+  color: rgba(255, 80, 60, 0.35);
+}
+
+/* Once it's genuinely close, the face wakes up. */
+.danger.critical .danger-icon.scare {
+  color: #ff3a24;
+  filter: drop-shadow(0 0 6px rgba(255, 60, 40, 0.8));
+  animation: dangerPulse 0.3s ease-in-out infinite;
+}
+
+.danger.critical .danger-icon.safe {
+  color: rgba(120, 220, 140, 0.12);
+}
+
+/* The graph: bars rising to the right, like a signal meter. */
+.danger-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 22px;
+}
+
+.danger-bar {
+  width: 6px;
+  border-radius: 1px;
+  /* Height is set per-bar in game.js: each one is taller than the last. */
+  background: rgba(232, 227, 207, 0.1);
+  border: 1px solid rgba(232, 227, 207, 0.12);
+  transition: background 0.08s linear, box-shadow 0.08s linear;
+}
+
+/* A lit bar carries its OWN colour — green at the left, red at the right — so the
+   colour tells you how bad it is even at a glance, without counting bars. Set from
+   JS, because the gradient has to be computed across however many bars there are. */
+.danger-bar.lit {
+  border-color: transparent;
 }
 
 @keyframes dangerPulse {
   0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.06); }
+  50% { transform: scale(1.12); }
 }
 
 /* Sonar radar, bottom-right. */
@@ -1264,18 +1298,18 @@ select:focus {
    --------------------------------------------------------------------------- */
 #mcPing {
   position: relative;
-  border-radius: 50%; /* it's a dial, so it's round */
+  border-radius: 3px; /* square, like every other control */
   overflow: hidden;
   --charge: 1;        /* 0..1, written every frame from game.js */
 }
 
 /* The sweep sits UNDER the label (the span is z-index 1), so the text stays
-   readable the whole way round. */
+   readable the whole way round. On a square button the conic reads as a wedge
+   wiping across the face, which is if anything clearer than a pie. */
 #mcPing::before {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 50%;
   background: conic-gradient(
     from -90deg,
     rgba(216, 200, 64, 0.34) calc(var(--charge) * 360deg),

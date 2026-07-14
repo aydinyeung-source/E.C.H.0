@@ -45,13 +45,34 @@
     <!-- Contextual [E] prompt: keypad, terminal, vent, locker, board up. -->
     <div class="use-prompt hidden" id="usePrompt"></div>
 
-    <!-- Proximity to the NEAREST entity. Empty = nothing near you; full and red =
-         something is on top of you. It never tells you WHICH direction — that's the
-         radar's job, and the radar costs a ping. -->
+    <!-- Proximity to the NEAREST entity, as a signal-strength graph: bars light up
+         left to right as it closes, each one taller than the last. It never tells you
+         WHICH direction — that's the radar's job, and the radar costs a ping.
+         Flanked by the two states it runs between: nothing near you, and something
+         standing over you. The bars themselves are built in game.js. -->
     <div class="danger hidden" id="dangerBar">
-      <div class="danger-track">
-        <div class="danger-fill" id="dangerFill"></div>
-      </div>
+      <!-- Clear: an entity, crossed out. -->
+      <svg class="danger-icon safe" viewBox="0 0 24 24" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <circle cx="12" cy="7" r="3.2" />
+          <path d="M6 20v-2.5a6 6 0 0 1 12 0V20" />
+          <path d="M4 4l16 16" stroke-width="2.2" />
+        </g>
+      </svg>
+
+      <div class="danger-bars" id="dangerBars"></div>
+
+      <!-- Close: the face. -->
+      <svg class="danger-icon scare" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.16" />
+        <circle cx="8.4" cy="9.6" r="2" fill="currentColor" />
+        <circle cx="15.6" cy="9.6" r="2" fill="currentColor" />
+        <path
+          d="M6.5 15.2 L8 18 L9.5 15.4 L11 18.4 L12.5 15.2 L14 18.4 L15.5 15.4 L17 18 L17.5 15.2"
+          fill="none" stroke="currentColor" stroke-width="1.5"
+          stroke-linejoin="round" stroke-linecap="round"
+        />
+      </svg>
     </div>
 
     <!-- Sonar radar (bottom-right, shown while playing). -->

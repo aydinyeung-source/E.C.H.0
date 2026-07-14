@@ -437,8 +437,9 @@ button.small {
 }
 
 .seed-tag {
+  /* Pushed below the danger meter, which now owns the top-left corner. */
   position: fixed;
-  top: 10px;
+  top: 74px;
   left: 12px;
   z-index: 6;
   font-size: 0.62rem;
@@ -650,23 +651,23 @@ button.secondary:hover {
    --------------------------------------------------------------------------- */
 .danger {
   position: fixed;
-  top: 38px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 12px;
+  left: 12px;
   z-index: 6;
   display: flex;
   align-items: flex-end;
-  gap: 9px;
-  padding: 6px 10px;
+  gap: 12px;
+  padding: 9px 13px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(232, 227, 207, 0.1);
+  background: rgba(0, 0, 0, 0.5);
   pointer-events: none;
 }
 
 /* The two ends of the scale, drawn as what they mean. */
 .danger-icon {
-  width: 19px;
-  height: 19px;
+  width: 26px;
+  height: 26px;
   flex: none;
   margin-bottom: 1px;
 }
@@ -694,12 +695,12 @@ button.secondary:hover {
 .danger-bars {
   display: flex;
   align-items: flex-end;
-  gap: 3px;
-  height: 22px;
+  gap: 4px;
+  height: 30px;
 }
 
 .danger-bar {
-  width: 6px;
+  width: 8px;
   border-radius: 1px;
   /* Height is set per-bar in game.js: each one is taller than the last. */
   background: rgba(232, 227, 207, 0.1);
@@ -1097,7 +1098,7 @@ button.playtest.active {
    on an immune run that is telling you the truth about how the run went. */
 .death-tag {
   position: fixed;
-  top: 30px;
+  top: 94px;
   left: 12px;
   z-index: 8;
   font-size: 0.62rem;
@@ -1296,8 +1297,13 @@ select:focus {
    o'clock, widening as the dish recharges, until the circle closes and it's whole
    again. No number, no bar, no label: the thing in your hand visibly comes back.
    --------------------------------------------------------------------------- */
+/* NOTE: position MUST stay `fixed`. Every .mc-btn is position:fixed and placed by
+   its own right/bottom offsets — setting `relative` here (which I did, briefly)
+   silently drops the button out of that positioning scheme and it disappears off
+   the layout entirely. A fixed element is already a containing block for the
+   absolutely-positioned ::before, so nothing is lost. */
 #mcPing {
-  position: relative;
+  position: fixed;
   border-radius: 3px; /* square, like every other control */
   overflow: hidden;
   --charge: 1;        /* 0..1, written every frame from game.js */

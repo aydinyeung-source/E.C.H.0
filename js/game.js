@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.52.0";
+const VERSION = "v2.52.1";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -1089,7 +1089,7 @@ function buildDangerBars() {
   for (let i = 0; i < DANGER_BARS; i++) {
     const b = document.createElement("div");
     b.className = "danger-bar";
-    b.style.height = 7 + (i / (DANGER_BARS - 1)) * 15 + "px"; // 7px -> 22px
+    b.style.height = 9 + (i / (DANGER_BARS - 1)) * 21 + "px"; // 9px -> 30px
     dangerBars.appendChild(b);
   }
 }

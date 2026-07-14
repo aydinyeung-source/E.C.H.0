@@ -110,17 +110,44 @@ const REPATH_INTERVAL = 0.5;
 // you real quiet time.
 const BASE_POP = 1;
 const MAX_POP = 3;
-// The score is now CELLS UNCOVERED, not metres, so the population scales off that
-// instead: one more of them for every 20 new cells you've walked into. Roughly the
-// same pacing as the old "every 120m", but it now tracks how much you've EXPLORED
-// rather than how far you happen to be from where you started — so a player who
-// doubles back and searches carefully still draws a crowd eventually.
-const POP_PER_METRE = 20;           // (cells, now — the name is a fossil)
-const PLACE_COOLDOWN = 45;          // seconds between any two new arrivals
-// These had to move out with the view distance: you can now see ~60m instead of
-// ~35m, so the old 30-50m arrival ring was well inside your sightline.
-const POP_MIN_DIST = 40;            // far beyond SIGHT_RANGE, and beyond a glance
-const POP_MAX_DIST = 70;            // kept inside the guaranteed-built 72u of world
+// SPAWNS ARE NOW HALF AS FREQUENT. Both rates are doubled together, because
+// halving only one of them wouldn't do it: the cooldown governs how fast a gap
+// gets refilled, and POP_PER_CELL governs how fast a new gap even opens. Slow one
+// and the other still drags the population up at the old pace.
+//
+// The CAP is deliberately unchanged (still 3). "Rarer" should mean they turn up
+// less often, not that the maze can never get dangerous — a long run still ends up
+// crowded, it just takes twice as much exploring to get there.
+//
+// The score is CELLS UNCOVERED, so population scales off that: one more of them
+// per 40 new cells you've walked into (was 20). It tracks how much you've EXPLORED
+// rather than how far you got from spawn, so a player who doubles back and
+// searches carefully still draws a crowd eventually.
+const POP_PER_METRE = 40;           // cells, not metres — the name is a fossil
+const PLACE_COOLDOWN = 90;          // seconds between any two new arrivals (was 45)
+// THE ARRIVAL RING.
+//
+// The MINIMUM is basically gone. It used to be a big number (40m) doing a job that
+// something else already does properly: _place refuses any spot that isn't BEHIND A
+// WALL, so a close arrival is already, by construction, one you cannot see. Keeping
+// a large minimum on top of that was belt-and-braces, and it meant the thing that
+// walks around the corner at you always had to have come from a long way off. 12m
+// is now the floor — just far enough that one can't materialise on the other side
+// of the wall you are currently touching.
+//
+// The MAXIMUM cannot be removed, and it's worth being honest about why rather than
+// pretending it's a design choice. The map is infinite as a CONCEPT, but only
+// CHUNK_RADIUS chunks of it are actually built at any moment — 72m guaranteed in
+// every direction. Past that edge there is no geometry: no walls to collide with,
+// nothing for the pathfinder to route around, no floor. An entity placed out there
+// would drift through solid walls until it wandered back into the built world. The
+// 70m cap is not "spawns shouldn't be far away", it's "that is where the world
+// currently ends".
+//
+// (If you want them arriving from further out, the lever is CHUNK_RADIUS in
+// world.js — build more world, and this can follow it out. It costs geometry.)
+const POP_MIN_DIST = 12;
+const POP_MAX_DIST = 70;            // the edge of the guaranteed-built world
 const MIN_SEPARATION = 22;
 const DESPAWN = 90;                 // drop ones that fall far behind, then re-place
 

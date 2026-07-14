@@ -9,6 +9,7 @@
 import { World, SPAWN, setWorldSeed, CELL } from "./world.js";
 import { Player, BASE_SENSITIVITY } from "./player.js";
 import { SonarSystem } from "./sonar.js";
+import { GLOW_TIME } from "./reveal.js";
 import { EntitySystem } from "./entities.js";
 import { AudioSystem } from "./audio.js";
 import { Pickups, MEAT_ENERGY } from "./pickups.js";
@@ -17,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.47.0";
+const VERSION = "v2.48.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -239,20 +240,28 @@ const WALK_REGEN = 4;  // energy per second regained while walking (not running)
 // Energy per sonar reveal. Raised from 4: a full bar used to buy ~37 pings, which
 // is enough that you never had to think about it. At 6 it's ~25, and on a long run
 // the question "can I afford to look?" starts having a real answer.
-const SONAR_COST = 6;
-
-// TEN SECONDS BETWEEN PINGS.
+// THE PING COSTS 15% OF THE BAR, AND THE DISH TAKES 15 SECONDS TO RECHARGE.
 //
-// The energy cost alone never really bit — you could spam the sonar and simply eat
-// more. A cooldown is a different kind of limit: it doesn't ask what you can afford,
-// it asks what you're going to do with the next ten seconds of darkness. You get one
-// look, and then you have to actually commit to a direction and walk into the black
-// on the strength of it.
+// The cooldown is GLOW_TIME exactly (reveal.js), and that is the whole idea: a
+// revealed wall fades to black over fifteen seconds, so the sonar comes back at the
+// precise moment the last of the light you bought finishes dying. You are never
+// standing in the dark waiting for it, and you never have a spare ping in hand while
+// the world is still lit. One look, one fade, one look.
 //
-// It also stops the ping being an answer to being hunted. Something has you, and the
-// dish is dead for eight more seconds, and the only tools left are your feet and the
-// map in your head. That is the game.
-const SONAR_COOLDOWN = 10;
+// The energy cost is a fraction of the bar rather than a flat number, so it can't
+// silently drift out of meaning if ENERGY_MAX is ever retuned. At 15% a full bar is
+// SIX pings — you can no longer spam the sonar and simply eat more meat, and "can I
+// afford to look?" is now a real question with a real answer.
+//
+// Together they stop the ping being an answer to being hunted. Something has you,
+// the dish is dead for another twelve seconds, and all you have left is your feet
+// and the map in your head. That is the game.
+// Both are DERIVED, not typed in. The cooldown IS the glow time — imported, not
+// copied — so retuning how long walls take to fade can never silently leave you
+// pinging into a lit world or waiting in a dark one. Same reason the cost is a
+// fraction of the bar: neither number can drift out of meaning behind your back.
+const SONAR_COST = ENERGY_MAX * 0.15;
+const SONAR_COOLDOWN = GLOW_TIME;
 let sonarTimer = 0; // seconds until the sonar is live again
 
 // Crucifix: the panic button, and rare. Brandishing it does three things at once

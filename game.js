@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.37.0";
+const VERSION = "v2.38.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -57,6 +57,7 @@ const playtestTag = document.getElementById("playtestTag");
 const deathTag = document.getElementById("deathTag");
 const doorBar = document.getElementById("doorBar");
 const doorFill = document.getElementById("doorFill");
+const doorLabel = document.getElementById("doorLabel");
 const usePrompt = document.getElementById("usePrompt");
 const halonOverlay = document.getElementById("halon");
 const terminalOverlay = document.getElementById("terminalOverlay");
@@ -141,8 +142,14 @@ const fx = {
   taskDone(reward) {
     announce(`TASK COMPLETE · ${reward.toUpperCase()} IN THE LOCKER`, 4);
   },
-  breach() {
-    announce("THE DOOR IS GONE", 3.5);
+  breach(viaVent) {
+    announce(viaVent ? "THEY'RE COMING THROUGH THE VENT" : "THE ROOM IS OPEN", 3.5);
+  },
+  ventOpen() {
+    announce("VENT OPEN · THEY WILL GO FOR IT NOW", 4);
+  },
+  doorSpent() {
+    announce("THE DOOR WON'T SHUT AGAIN", 3.5);
   },
 };
 
@@ -342,6 +349,13 @@ function renderHotbar() {
 function selectSlot(i) {
   selectedSlot = ((i % HOTBAR_SLOTS) + HOTBAR_SLOTS) % HOTBAR_SLOTS;
   renderHotbar();
+}
+
+// The first slot holding nothing (or the last slot if the pack is somehow full).
+// A run starts here so that the very first press of USE can't spend anything.
+function firstEmptySlot() {
+  const i = hotbar.findIndex((s) => s.type === null || s.count === 0);
+  return i === -1 ? HOTBAR_SLOTS - 1 : i;
 }
 
 function resetHotbar() {
@@ -565,6 +579,12 @@ function startRun(rawSeedText, label, isDaily) {
   // single meal, so you're never dead on arrival with nothing to fall back on.
   addItem("crucifix", 1);
   addItem("meat", 1);
+  // ...but you do NOT start with the crucifix in your hand. It landed in slot 1 and
+  // slot 1 is selected by default, so the very first press of USE burned the one
+  // item in the game you cannot replace. Start on an EMPTY slot: now the first
+  // press does nothing (or interacts, on mobile), and spending the crucifix takes
+  // a deliberate act of selecting it.
+  selectSlot(firstEmptySlot());
   torchOn = false;
   torchCharge = 0;
   boostTimer = 0;
@@ -1001,6 +1021,8 @@ function updateSafeRoomHud() {
   if (hud) {
     doorFill.style.width = hud.pct * 100 + "%";
     doorBar.classList.toggle("under-siege", hud.sieging);
+    // The bar tracks whichever way in they're actually working on.
+    doorLabel.textContent = hud.vent ? "VENT" : "DOOR";
   }
 
   const text = announceTimer > 0 ? announceText : saferooms.prompt ? saferooms.prompt.text : "";

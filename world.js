@@ -63,7 +63,14 @@ const WINDOW_H = 2.2;      // top of the opening (lintel sits above it)
 // the place, the way they would be in a building people left in a hurry.
 const CELL_MEAT_CHANCE = 0.05;
 const CELL_TORCH_CHANCE = 0.03;
-const CELL_CRUCIFIX_CHANCE = 0.03;
+// The crucifix stays RARE, and deliberately out of step with the other two. At 3%
+// a cell it worked out at ~1 per chunk — one every 37m of corridor — and an item
+// that blinds every entity in the world, wipes their memory of you and hands you a
+// speed burst cannot be something you trip over constantly. A panic button stops
+// being a panic button when you own thirty of them. 0.5% puts it at ~1 per 6
+// chunks: still far commoner than it used to be, but you'll think before spending
+// one.
+const CELL_CRUCIFIX_CHANCE = 0.005;
 const CHUNK_CELLS = 6;   // cells per chunk edge (bigger = longer unbroken halls)
 const CHUNK_SIZE = CELL * CHUNK_CELLS;
 // Chunks are 6x6 cells (36u). At radius 1 the WORST case — standing at a chunk's
@@ -576,6 +583,16 @@ function buildRoomSpec(cx, cy) {
   ];
   const door = shell[Math.floor(hash2(cx, cy, 5155) * shell.length)];
 
+  // THE VENT. A second way out, in the BACK wall — the side opposite the door, as
+  // far from the way you came in as the room gets. It's a crawlspace: barred by a
+  // grate until you pry it off, and then only you can fit through it.
+  //
+  // It is a hole in the shell exactly like the doorway is, so the maze must leave
+  // that edge alone too and let the safe room supply its own geometry there.
+  const opposite = { W: "E", E: "W", N: "S", S: "N" }[door.side];
+  const backEdges = shell.filter((e) => e.side === opposite);
+  const vent = backEdges[Math.floor(hash2(cx, cy, 5158) * backEdges.length)];
+
   // The four edges strictly INSIDE the room: these come out, so the 2x2 is one
   // open space rather than four cells.
   const interior = new Set([
@@ -586,8 +603,12 @@ function buildRoomSpec(cx, cy) {
   ]);
 
   const doorId = door.type + ":" + door.i + ":" + door.j;
+  const ventId = vent.type + ":" + vent.i + ":" + vent.j;
   const perimeter = new Set(shell.map((e) => e.type + ":" + e.i + ":" + e.j));
-  perimeter.delete(doorId); // the doorway is a hole in the shell; the door fills it
+  // Both openings are holes in the shell. The maze builds no wall at either; the
+  // safe room fills them with a door and a grate, and owns their collision.
+  perimeter.delete(doorId);
+  perimeter.delete(ventId);
 
   // The KeySwitch lives OUT in the hallways, 3-5 cells away. You have to leave,
   // find it, read the serial and come back.
@@ -598,15 +619,23 @@ function buildRoomSpec(cx, cy) {
     rj + Math.round(Math.sin(ang) * dist),
   ];
 
-  const doorPos =
-    door.type === 0
-      ? { x: (door.i + 0.5) * CELL, z: door.j * CELL }
-      : { x: door.i * CELL, z: (door.j + 0.5) * CELL };
+  const edgePos = (e) =>
+    e.type === 0
+      ? { x: (e.i + 0.5) * CELL, z: e.j * CELL }
+      : { x: e.i * CELL, z: (e.j + 0.5) * CELL };
+
+  const doorPos = edgePos(door);
+  const ventPos = edgePos(vent);
 
   return {
     key: cx + ":" + cy,
     cx, cy, ri, rj, serial,
     door: { ...door, id: doorId, x: doorPos.x, z: doorPos.z, horiz: door.type === 0 },
+    vent: {
+      ...vent, id: ventId, x: ventPos.x, z: ventPos.z, horiz: vent.type === 0,
+      // Where you come out when you crawl, and where they'll gather if you open it.
+      outside: { x: (vent.out[0] + 0.5) * CELL, z: (vent.out[1] + 0.5) * CELL },
+    },
     // Where a besieger stands: the middle of the cell on the far side of the door.
     outside: { x: (door.out[0] + 0.5) * CELL, z: (door.out[1] + 0.5) * CELL },
     interior,
@@ -620,16 +649,17 @@ function buildRoomSpec(cx, cy) {
 }
 
 // What, if anything, does a safe room say about this edge?
-//   "open"  - inside the room; no wall
-//   "solid" - the room's shell; an unbreakable wall the maze may not touch
-//   "door"  - the doorway; no maze wall, the door object fills it
+//   "open"    - inside the room; no wall
+//   "solid"   - the room's shell; an unbreakable wall the maze may not touch
+//   "opening" - the doorway or the vent; no maze wall, the safe room fills it and
+//               owns its collision (see saferoom.js _rebuildBounds)
 function roomEdge(type, i, j) {
   const cells = type === 0 ? [[i, j], [i, j - 1]] : [[i, j], [i - 1, j]];
   const id = type + ":" + i + ":" + j;
   for (const [ci, cj] of cells) {
     const r = chunkRoom(Math.floor(ci / CHUNK_CELLS), Math.floor(cj / CHUNK_CELLS));
     if (!r) continue;
-    if (r.door.id === id) return "door";
+    if (r.door.id === id || r.vent.id === id) return "opening";
     if (r.perimeter.has(id)) return "solid";
     if (r.interior.has(id)) return "open";
   }
@@ -731,13 +761,32 @@ export class World {
     this.floorMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 0, map: makeFloorTexture() });
     this.ceilMat = new THREE.MeshPhongMaterial({ color: COL_CEIL, shininess: 0 });
 
-    // Safe-room surfaces: concrete and steel, and not a trace of yellow.
+    // --- Safe-room surfaces -------------------------------------------------
+    // Concrete and steel, and not a trace of yellow.
+    //
+    // THE ROOM IS LIT. Everywhere else in this game is pitch black until the sonar
+    // reveals it — but a safe room has its own emergency lamp, and you should be
+    // able to SEE that through the doorway rather than having to ping the inside
+    // of your own refuge. `emissiveMap` is the trick: the emissive contribution is
+    // multiplied by the texture, so the surfaces glow with their own detail
+    // instead of turning into flat coloured cards. The tint is the dull red of the
+    // lamp above them.
     const concrete = makeConcreteTexture();
     concrete.repeat.set(2, 1);
-    this.roomWallMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 4, map: concrete });
-    this.roomFloorMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 22, map: makeTreadTexture() });
-    this.roomCeilMat = new THREE.MeshPhongMaterial({ color: 0x2a2e30, shininess: 0 });
+    const tread = makeTreadTexture();
+    this.roomWallMat = new THREE.MeshPhongMaterial({
+      color: 0xffffff, shininess: 4, map: concrete,
+      emissive: 0x6b3a30, emissiveMap: concrete,
+    });
+    this.roomFloorMat = new THREE.MeshPhongMaterial({
+      color: 0xffffff, shininess: 22, map: tread,
+      emissive: 0x5e3128, emissiveMap: tread,
+    });
+    this.roomCeilMat = new THREE.MeshPhongMaterial({
+      color: 0x2a2e30, shininess: 0, emissive: 0x2a1512,
+    });
     this.roomGeo = new THREE.PlaneGeometry(CELL * 2, CELL * 2); // a room is exactly 2x2 cells
+    this.liningGeo = new THREE.BoxGeometry(1, 1, 1);
 
     // The world is unlit; the sonar rings (reveal.js) are what light surfaces.
     [
@@ -832,17 +881,22 @@ export class World {
     //     unnaturally clean), with a rare few carrying bloody writing instead. ---
     const buckets = this.wallMats.map(() => []); // one instance list per variant
     const bloodInsts = [];
-    const roomInsts = []; // a safe room's shell: concrete, not wallpaper
     for (let di = 0; di < CHUNK_CELLS; di++) {
       for (let dj = 0; dj < CHUNK_CELLS; dj++) {
         const i = i0 + di;
         const j = j0 + dj;
         for (const type of [0, 1]) {
           if (!wallPresent(type, i, j)) continue;
-          let list;
-          if (roomEdge(type, i, j) === "solid") list = roomInsts;
-          else if (hash2(i, j, type === 0 ? 811 : 911) < BLOOD_CHANCE) list = bloodInsts;
-          else list = buckets[wallVariant(type, i, j)];
+          // A safe room's shell walls are ORDINARY walls from the corridor side.
+          // They used to be built out of concrete, which meant the hallway outside
+          // a room was lined with grey — a dead giveaway, and it broke the
+          // liminal yellow the instant a room was anywhere nearby. The concrete
+          // now only exists as a LINING on the inside faces (see below), so from
+          // the corridor a safe room looks like any other stretch of wall.
+          const list =
+            hash2(i, j, type === 0 ? 811 : 911) < BLOOD_CHANCE
+              ? bloodInsts
+              : buckets[wallVariant(type, i, j)];
           this._buildWall(type, i, j, list, bounds);
         }
       }
@@ -867,7 +921,6 @@ export class World {
     };
     buckets.forEach((list, v) => addWalls(list, this.wallMats[v]));
     addWalls(bloodInsts, this.bloodMat);
-    addWalls(roomInsts, this.roomWallMat);
 
     // --- Floor & ceiling planes ---------------------------------------------
     const centerX = i0 * CELL + CHUNK_SIZE / 2;
@@ -883,9 +936,11 @@ export class World {
     ceil.position.set(centerX, WALL_H, centerZ);
     group.add(ceil);
 
-    // A safe room gets its own floor and ceiling laid over the chunk's, a
-    // millimetre proud of them so there's no z-fighting. Step through the door
-    // and the grimy yellow carpet becomes steel tread plate under your feet.
+    // A safe room gets its own floor, ceiling and wall lining laid over the
+    // chunk's, a millimetre proud of them so there's no z-fighting. Step through
+    // the door and the grimy yellow carpet becomes steel tread plate under your
+    // feet and the wallpaper becomes poured concrete — but ONLY on this side. The
+    // corridor outside sees an ordinary wall.
     const room = chunkRoom(cx, cy);
     if (room) {
       const rFloor = new THREE.Mesh(this.roomGeo, this.roomFloorMat);
@@ -897,6 +952,26 @@ export class World {
       rCeil.rotation.x = Math.PI / 2;
       rCeil.position.set(room.cxWorld, WALL_H - 0.012, room.czWorld);
       group.add(rCeil);
+
+      // One lining slab per shell wall, sitting just inside it. `perimeter` already
+      // excludes the doorway and the vent, so neither opening gets boarded over.
+      const inset = WALL_T / 2 + 0.03;
+      for (const id of room.perimeter) {
+        const [type, i, j] = id.split(":").map(Number);
+        const horiz = type === 0;
+        const lining = new THREE.Mesh(this.liningGeo, this.roomWallMat);
+        if (horiz) {
+          // Which way is the room from this wall? South edge => room is at +Z.
+          const inward = j === room.rj ? 1 : -1;
+          lining.scale.set(CELL, WALL_H, 0.06);
+          lining.position.set((i + 0.5) * CELL, WALL_H / 2, j * CELL + inward * inset);
+        } else {
+          const inward = i === room.ri ? 1 : -1;
+          lining.scale.set(0.06, WALL_H, CELL);
+          lining.position.set(i * CELL + inward * inset, WALL_H / 2, (j + 0.5) * CELL);
+        }
+        group.add(lining);
+      }
     }
 
     // --- Fluorescent light panels (one per cell, emissive) ------------------
@@ -1101,19 +1176,26 @@ export class World {
     }
   }
 
-  // The nearest smashed window within `radius` of a point, or null. player.js uses
-  // this to know when to hoist you over a sill.
+  // The nearest thing you have to climb THROUGH within `radius`, or null. That's a
+  // smashed window's sill, or an open safe-room vent. player.js uses it to know
+  // when to hoist you over one (or duck you into one — see the `crawl` flag).
+  //
+  // It searches extraBounds as well as the chunks: the vent is a runtime bound
+  // owned by the safe room, so a chunks-only search would never find it and
+  // walking into an open vent would just bump you off a wall.
   windowNear(x, z, radius) {
+    const hit = (w) => {
+      if (!w.window) return false;
+      const nx = Math.max(w.minX, Math.min(x, w.maxX));
+      const nz = Math.max(w.minZ, Math.min(z, w.maxZ));
+      const dx = x - nx;
+      const dz = z - nz;
+      return dx * dx + dz * dz < radius * radius;
+    };
     for (const chunk of this.chunks.values()) {
-      for (const w of chunk.bounds) {
-        if (!w.window) continue;
-        const nx = Math.max(w.minX, Math.min(x, w.maxX));
-        const nz = Math.max(w.minZ, Math.min(z, w.maxZ));
-        const dx = x - nx;
-        const dz = z - nz;
-        if (dx * dx + dz * dz < radius * radius) return w;
-      }
+      for (const w of chunk.bounds) if (hit(w)) return w;
     }
+    for (const w of this.extraBounds) if (hit(w)) return w;
     return null;
   }
 }

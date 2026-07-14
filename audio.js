@@ -533,6 +533,17 @@ export class AudioSystem {
     }
   }
 
+  // Prying a vent grate off its bolts: a long, ugly shriek of metal giving way,
+  // then the clatter of it hitting concrete. It is the loudest thing you will do
+  // inside a safe room, and it should sound like a decision you can't take back.
+  ventPry() {
+    if (!this.ctx) return;
+    this._tone(340, 180, 0.7, "sawtooth", 0.22);
+    this._noiseBurst(0.65, "bandpass", 2400, 4, 0.28); // the screech of the bolts
+    this._tone(200, 80, 0.24, "square", 0.3, 0.55);    // it drops
+    this._noiseBurst(0.3, "highpass", 1800, 0.6, 0.35, 0.58);
+  }
+
   switchPull() {
     if (!this.ctx) return;
     this._noiseBurst(0.09, "highpass", 2600, 0.8, 0.5);

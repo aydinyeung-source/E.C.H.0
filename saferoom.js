@@ -42,19 +42,28 @@ import { installReveal } from "./reveal.js";
 
 const LOAD_RADIUS = 2;          // chunks around the player whose rooms get built
 
+// THE DOOR DOES NOT BREAK. It is a steel blast door in a concrete box and nothing
+// out there is getting through it — they can hammer on it until they lose heart
+// and it will not give. It has no durability and no breach state.
+//
+// The cost is not that the door fails. The cost is that IT ONLY WORKS ONCE. Push
+// it open from the inside and walk out, and it never shuts again — the room is
+// spent. So a safe room is not a fortress you can retreat to over and over; it's a
+// single use, and the decision that matters is WHEN you spend it, and whether you
+// can still leave when you're done.
+//
+// (What CAN be broken is the vent — but only because you were the one who took the
+// grate off. See below.)
 const DOOR_H = 2.7;
 const DOOR_T = 0.34;
-const DOOR_MAX = 100;
-// Durability drain, per second, PER besieger standing at the door. One thing out
-// there gives you about a minute; three give you twenty seconds. The pressure is
-// how many of them you brought with you.
-const DECAY_PER_ENTITY = 1.7;
 const PLANK_REPAIR = 30;
 const REPAIR_HOLD = 1.5;        // seconds of holding [E] to nail one in
 const PUSH_DIST = 1.6;          // how close you must be to shoulder the door
 const REACH = 2.5;              // interaction reach for everything else
 const OPEN_TIME = 2.2;          // how long the door stands open before swinging to
 const THUD_COOLDOWN = 0.7;
+// Durability drain per second, PER besieger. Only the vent has durability now.
+const DECAY_PER_ENTITY = 1.7;
 
 const PLANK_COUNT = 3;
 const TASK_CODES = 3;           // codes to type before the task is done
@@ -64,6 +73,27 @@ const TYPE_NOISE_INTERVAL = 2.0;
 
 const PANIC_RADIUS = 20;
 const PANIC_STUN = 5;
+
+// --- THE VENT ---------------------------------------------------------------
+// A crawlspace in the BACK wall, as far from the door as the room gets. Behind a
+// bolted grate.
+//
+// Pry the grate off and you have a second way out — one only YOU can use, because
+// nothing else in here fits down a duct. It is the answer to the room's worst
+// failure state: the door is holding, the terminal is half done, and you realise
+// you are sealed in a concrete box with three of them outside the only exit.
+//
+// AND IT IS ONE-TIME, in the sense that matters: the grate does not go back on.
+// The moment it comes off, the room has a soft spot, and they know it. A siege
+// RELOCATES to the vent — it's the weak point and they can smell it — and the vent
+// takes half the punishment a door does before it gives. So the escape hatch is
+// also the thing that will get you killed if you open it early and then decide to
+// stay. Board it back up with a plank if you can. If you can't, you had better be
+// leaving.
+const VENT_MAX = 55;        // vs the door's 100. It was never built to hold.
+const VENT_H = 0.85;        // a crawl, not a walk
+const VENT_W = 1.1;
+const VENT_SILL = 0.15;     // it sits low, near the floor
 
 const REWARDS = ["meat", "torch", "crucifix"];
 
@@ -318,23 +348,42 @@ export class SafeRooms {
     // The door and the switch echo CYAN, not green. installReveal takes a private
     // tint for exactly this. Over-bright on purpose (>1) so the ring hitting them
     // reads as a hard flash rather than a tint.
+    // Everything a safe room owns is faintly SELF-LIT (emissive), because the room
+    // has power and the rest of the world does not. Two consequences, both wanted:
+    // the inside of a room is visible the moment you're in it without spending a
+    // ping on your own refuge; and out in the corridor, a door or a fire-alarm
+    // switch is a dim shape in the dark rather than something you can only find by
+    // echo. `emissiveMap` keeps the texture detail in the glow instead of flooding
+    // the object with flat colour.
     const cyanFlash = new THREE.Color(ECHO_CYAN).multiplyScalar(2.6);
+    const doorTex = makeDoorTexture();
     this.doorMat = new THREE.MeshPhongMaterial({
-      color: 0xffffff, shininess: 42, specular: 0x556070, map: makeDoorTexture(),
+      color: 0xffffff, shininess: 42, specular: 0x556070, map: doorTex,
+      emissive: 0x3c4450, emissiveMap: doorTex,
     });
     installReveal(this.doorMat, cyanFlash);
-    this.wreckMat = new THREE.MeshPhongMaterial({ color: 0x3a3f46, shininess: 0 });
+    this.wreckMat = new THREE.MeshPhongMaterial({ color: 0x3a3f46, shininess: 0, emissive: 0x14171a });
     installReveal(this.wreckMat);
+    const switchTex = makeSwitchTexture();
     this.switchMat = new THREE.MeshPhongMaterial({
-      color: 0xffffff, shininess: 18, map: makeSwitchTexture(),
+      color: 0xffffff, shininess: 18, map: switchTex,
+      emissive: 0x6a2a24, emissiveMap: switchTex, // a red box you can just make out
     });
     installReveal(this.switchMat, cyanFlash);
-    this.metalMat = new THREE.MeshPhongMaterial({ color: 0x767f8a, shininess: 30, specular: 0x445062 });
+    this.metalMat = new THREE.MeshPhongMaterial({
+      color: 0x767f8a, shininess: 30, specular: 0x445062, emissive: 0x2b3138,
+    });
     installReveal(this.metalMat);
     this.darkMetalMat = new THREE.MeshPhongMaterial({ color: 0x3d444c, shininess: 24 });
     installReveal(this.darkMetalMat);
+    // The throat of the duct: near-black, and NOT self-lit — it's the one thing in
+    // a lit room you still can't see into.
+    this.ductMat = new THREE.MeshPhongMaterial({ color: 0x08090a, shininess: 0 });
+    installReveal(this.ductMat);
+    const plankTex = makePlankTexture();
     this.woodMat = new THREE.MeshPhongMaterial({
-      color: 0xffffff, shininess: 2, map: makePlankTexture(),
+      color: 0xffffff, shininess: 2, map: plankTex,
+      emissive: 0x4a3418, emissiveMap: plankTex,
     });
     installReveal(this.woodMat);
 
@@ -413,7 +462,11 @@ export class SafeRooms {
     room = {
       spec,
       group: null,
-      door: { state: "locked", durability: DOOR_MAX, openTimer: 0 },
+      // locked -> closed (switch pulled) -> open (shoved) -> SPENT (you left)
+      door: { state: "locked", openTimer: 0 },
+      // sealed -> open (you pried the grate off) -> breached (they came through it)
+      vent: { state: "sealed", durability: VENT_MAX },
+      wasInside: false,
       switchPulled: false,
       task: { index: 0, done: false },
       lockerOpen: false,
@@ -633,24 +686,72 @@ export class SafeRooms {
     g.add(this._box(this.darkMetalMat, 0.62, 0.1, 0.3, s.cxWorld, WALL_H - 0.04, s.czWorld)); // housing
     room.meshes.lamp = lamp;
 
-    // --- The panic button, on the wall beside the door ----------------------
-    // A hinged safety cover over a big red mushroom head. You are not going to
-    // press this by accident.
-    const panic = this._panicPlacement(s);
+    // --- The vent, in the back wall -----------------------------------------
+    // A louvred steel grate bolted low into the concrete, as far from the door as
+    // the room gets. Pry it off and it's a crawlspace out.
+    const v = s.vent;
+    const ventGroup = new THREE.Group();
+    ventGroup.position.set(v.x, 0, v.z);
+    ventGroup.rotation.y = v.horiz ? 0 : Math.PI / 2;
+
+    // Frame: a lip around the opening so it reads as a hole in the wall, not a
+    // poster of one.
+    const fw = VENT_W + 0.16;
+    const fh = VENT_H + 0.16;
+    const midY = VENT_SILL + VENT_H / 2;
+    ventGroup.add(this._box(this.darkMetalMat, fw, 0.08, 0.4, 0, VENT_SILL - 0.04, 0));   // bottom lip
+    ventGroup.add(this._box(this.darkMetalMat, fw, 0.08, 0.4, 0, VENT_SILL + VENT_H + 0.04, 0)); // top lip
+    for (const sx of [-1, 1]) {
+      ventGroup.add(this._box(this.darkMetalMat, 0.08, fh, 0.4, sx * (fw / 2 - 0.04), midY, 0));
+    }
+    // The dark of the duct behind it.
+    ventGroup.add(this._box(this.ductMat, VENT_W, VENT_H, 0.06, 0, midY, -0.12));
+
+    // The grate itself: a plate of angled louvres and four corner bolts. This is
+    // what comes off.
+    const grate = new THREE.Group();
+    grate.position.set(0, midY, 0.06);
+    grate.add(this._box(this.metalMat, VENT_W, VENT_H, 0.03, 0, 0, 0));
+    for (let k = 0; k < 6; k++) {
+      const slat = this._box(this.darkMetalMat, VENT_W - 0.1, 0.055, 0.05, 0, -VENT_H / 2 + 0.1 + k * 0.13, 0.03);
+      slat.rotation.x = 0.45; // angled, so you can't see in
+      grate.add(slat);
+    }
+    for (const bx of [-1, 1]) {
+      for (const by of [-1, 1]) {
+        grate.add(this._rod(this.trimMat, 0.02, 0.03, bx * (VENT_W / 2 - 0.07), by * (VENT_H / 2 - 0.07), 0.04));
+      }
+    }
+    ventGroup.add(grate);
+    room.meshes.grate = grate;
+    g.add(ventGroup);
+    room.ventPos = { x: v.x, z: v.z };
+
+    // --- The panic button, in the MIDDLE of the room -------------------------
+    // On a floor pedestal, dead centre, under its own little lamp. It's the last
+    // thing in the room and it should be the first thing you see when you get in —
+    // and when you're cornered, you want it reachable from anywhere, not bolted to
+    // one specific wall you might be pinned away from.
     const panicGroup = new THREE.Group();
-    panicGroup.position.set(panic.x, 0, panic.z);
-    panicGroup.rotation.y = panic.yaw;
-    panicGroup.add(this._box(this.darkMetalMat, 0.4, 0.4, 0.06, 0, 1.5, 0.02)); // backplate
-    panicGroup.add(this._box(this.metalMat, 0.34, 0.34, 0.1, 0, 1.5, 0.06));    // housing
+    panicGroup.position.set(s.cxWorld, 0, s.czWorld);
+    panicGroup.add(this._box(this.darkMetalMat, 0.5, 0.06, 0.5, 0, 0.03, 0));   // base plate
+    panicGroup.add(this._rod(this.metalMat, 0.09, 1.0, 0, 0.53, 0));            // post
+    panicGroup.add(this._box(this.metalMat, 0.42, 0.14, 0.42, 0, 1.08, 0));     // head housing
+    panicGroup.add(this._box(this.darkMetalMat, 0.46, 0.03, 0.46, 0, 1.16, 0)); // collar
     const head = new THREE.Mesh(this.knobGeo, this.panicMat);
-    head.scale.set(0.12, 0.06, 0.12);
-    head.rotation.x = Math.PI / 2;
-    head.position.set(0, 1.5, 0.13);
+    head.scale.set(0.15, 0.08, 0.15);
+    head.position.set(0, 1.2, 0);
     panicGroup.add(head);
-    panicGroup.add(this._box(this.trimMat, 0.3, 0.02, 0.02, 0, 1.29, 0.08));    // label strip
+    // Four guard posts, so you can't fall onto it.
+    for (const gx of [-1, 1]) {
+      for (const gz of [-1, 1]) {
+        panicGroup.add(this._rod(this.darkMetalMat, 0.022, 0.3, gx * 0.19, 1.28, gz * 0.19));
+      }
+    }
+    panicGroup.add(this._box(this.trimMat, 0.36, 0.02, 0.02, 0, 0.99, 0.21)); // label strip
     g.add(panicGroup);
     room.meshes.panic = head;
-    room.panicPos = panic;
+    room.panicPos = { x: s.cxWorld, z: s.czWorld };
 
     // --- Planks (once — a plank you took stays taken) ------------------------
     if (!room._propsSpawned) {
@@ -690,6 +791,7 @@ export class SafeRooms {
     if (room.panicUsed && room.meshes.panic) room.meshes.panic.material = this.wreckMat;
 
     this._applyDoorVisual(room);
+    this._applyVentVisual(room);
     this._rebuildBounds();
   }
 
@@ -827,29 +929,48 @@ export class SafeRooms {
   // Destroy the door and BOTH boxes go. Now it's just a hole, and they come in.
   _rebuildBounds() {
     const out = [];
+    const boxFor = (e, half) =>
+      e.horiz
+        ? { minX: e.i * CELL, maxX: (e.i + 1) * CELL, minZ: e.z - half, maxZ: e.z + half }
+        : { minX: e.x - half, maxX: e.x + half, minZ: e.j * CELL, maxZ: (e.j + 1) * CELL };
+
     for (const room of this.rooms.values()) {
       if (!room.group) continue;
-      const d = room.spec.door;
-      if (room.door.state === "breached") continue;
 
-      const half = DOOR_T / 2;
-      const box = d.horiz
-        ? { minX: d.i * CELL, maxX: (d.i + 1) * CELL, minZ: d.z - half, maxZ: d.z + half }
-        : { minX: d.x - half, maxX: d.x + half, minZ: d.j * CELL, maxZ: (d.j + 1) * CELL };
+      // --- The door ---
+      // Locked/closed: solid to everyone. Open: an `entityOnly` ward — you pass
+      // through the doorway, they cannot, even with it standing wide. SPENT: no box
+      // at all. That is the whole cost of having used the room.
+      if (room.door.state !== "spent") {
+        const box = boxFor(room.spec.door, DOOR_T / 2);
+        if (room.door.state === "open") out.push({ ...box, entityOnly: true });
+        else out.push(box);
+      }
 
-      if (room.door.state === "open") out.push({ ...box, entityOnly: true });
-      else out.push(box);
+      // --- The vent ---
+      // Sealed: a solid wall, no different from the concrete either side of it.
+      // Open:   a `window` bound — which is precisely the broken-window rule
+      //         already in the engine: solid to everyone, except a player who is
+      //         mid-vault. Tagging it `crawl` inverts the arc so you duck into it
+      //         rather than hop over it. They cannot follow you down a duct.
+      // Breached: nothing. They chewed through it and they're coming in.
+      if (room.vent.state !== "breached") {
+        const box = boxFor(room.spec.vent, DOOR_T / 2);
+        if (room.vent.state === "open") out.push({ ...box, window: true, crawl: true });
+        else out.push(box);
+      }
     }
     this.world.extraBounds = out;
   }
 
-  // The pathfinder's veto: while a door still stands, its edge is a wall as far as
-  // the entities are concerned, so they route to the OUTSIDE of it and stop.
+  // The pathfinder's veto: while a door or a grate still stands, that edge is a
+  // wall as far as the entities are concerned, so they route to the OUTSIDE of it
+  // and stop there. Break either one and the veto lifts and they walk straight in.
   _pathGate(type, i, j) {
     const id = type + ":" + i + ":" + j;
     for (const room of this.rooms.values()) {
-      if (room.spec.door.id !== id) continue;
-      return room.door.state !== "breached";
+      if (room.spec.door.id === id) return room.door.state !== "spent";
+      if (room.spec.vent.id === id) return room.vent.state !== "breached";
     }
     return false;
   }
@@ -911,13 +1032,33 @@ export class SafeRooms {
     const s = room.spec;
     const inside =
       px > s.minX + 0.2 && px < s.maxX - 0.2 && pz > s.minZ + 0.2 && pz < s.maxZ - 0.2;
-    const breached = room.door.state === "breached";
 
-    // --- SAFE ---------------------------------------------------------------
-    // Sealed in, with the door intact. Nothing can reach you. Everything that was
-    // on your trail is now stacked up outside it.
-    this.playerIsSafe = inside && !breached;
-    this.entities.setSiege(this.playerIsSafe ? s.outside : null);
+    // THE ROOM IS SPENT THE MOMENT YOU WALK OUT OF IT.
+    // Step through that door from the inside and it never closes again — the seal
+    // is broken, the ward is gone, and from now on anything can wander in. It is
+    // one use, and this line is where you spend it.
+    //
+    // Crawling out through the VENT does not do this: the door is still shut behind
+    // you. But you'll have had the grate off to manage it, which is its own problem.
+    if (room.wasInside && !inside && room.door.state === "open") {
+      room.door.state = "spent";
+      this._rebuildBounds();
+      this.fx.doorSpent();
+    }
+    room.wasInside = inside;
+
+    // A room is only a refuge while it's still sealed: the door unspent, and the
+    // vent not chewed open.
+    const compromised = room.door.state === "spent" || room.vent.state === "breached";
+    this.playerIsSafe = inside && !compromised;
+
+    // WHERE they lay siege. They go for the VENT if you've had the grate off — it's
+    // the soft spot and they know it. Otherwise they pile up on the door and beat
+    // on it, which achieves precisely nothing (the door does not break) but keeps
+    // them parked between you and the only way out.
+    const weakPoint = room.vent.state === "open" ? s.vent.outside : s.outside;
+    this.entities.setSiege(this.playerIsSafe ? weakPoint : null);
+    room.underSiegeAt = this.playerIsSafe ? (room.vent.state === "open" ? "vent" : "door") : null;
 
     this._door(dt, room, player, world);
     this._siege(dt, room);
@@ -925,18 +1066,28 @@ export class SafeRooms {
     this._terminalNoise(dt, room, player);
     this._interactions(room, player, holdingInteract, dt);
 
-    if (!breached && (room.door.durability < DOOR_MAX || this.playerIsSafe)) {
-      this.hud = { pct: room.door.durability / DOOR_MAX, sieging: !!this.entities.siege };
+    // The only thing with a health bar is the vent — and only once you've opened it.
+    if (room.vent.state === "open") {
+      this.hud = {
+        pct: room.vent.durability / VENT_MAX,
+        sieging: room.underSiegeAt === "vent",
+        vent: true,
+      };
     }
   }
 
-  // --- The door: push-to-open, bounce, decay, breach ------------------------
+  // --- The door: push-to-open, bounce off if locked, and swing shut behind you --
   _door(dt, room, player, world) {
     const d = room.spec.door;
     const st = room.door;
     const px = player.pos.x;
     const pz = player.pos.z;
     const dist = Math.hypot(d.x - px, d.z - pz);
+
+    if (st.state === "spent") {
+      this._applyDoorVisual(room, dt); // hangs open. forever.
+      return;
+    }
 
     if (st.state === "open") {
       st.openTimer -= dt;
@@ -979,38 +1130,20 @@ export class SafeRooms {
     const st = room.door;
     const d = room.spec.door;
 
-    if (st.state === "breached") {
-      slab.material = this.wreckMat;
-      // Off its hinges: dropped flat, buckled, half out of the frame.
-      pivot.rotation.y = 0;
-      slab.scale.set(d.horiz ? CELL * 0.94 : DOOR_T, DOOR_H * 0.4, d.horiz ? DOOR_T : CELL * 0.94);
-      slab.position.set(d.horiz ? 0.4 : 0, 0.2, d.horiz ? 0 : 0.4);
-      slab.rotation.set(d.horiz ? 0.55 : 0, 0.2, d.horiz ? 0 : 0.55);
-      for (const p of room.meshes.plates || []) p.visible = false;
-      return;
-    }
+    // The door never takes damage, so the slab never changes shape — it only
+    // swings. Spent, it simply stands open and stays there.
+    const width = CELL * 0.94;
+    slab.scale.set(d.horiz ? width : DOOR_T, DOOR_H, d.horiz ? DOOR_T : width);
+    slab.position.set(0, DOOR_H / 2, 0);
 
-    // Swing it on its hinges, easing rather than snapping — a heavy door does not
-    // teleport open.
-    const target = st.state === "open" ? -Math.PI * 0.52 : 0;
+    const target = st.state === "open" || st.state === "spent" ? -Math.PI * 0.52 : 0;
     st.swing = st.swing === undefined ? target : st.swing;
-    st.swing += (target - st.swing) * Math.min(1, (dt || 0.016) * 7);
+    st.swing += (target - st.swing) * Math.min(1, (dt || 0.016) * 7); // ease; it's heavy
     pivot.rotation.y = st.swing;
-
-    // Splintering: as durability falls, the slab sags in its frame. You can SEE how
-    // much door you have left without ever looking at the bar.
-    const t = st.durability / DOOR_MAX;
-    const h = DOOR_H * (0.82 + 0.18 * t);
-    slab.scale.set(d.horiz ? CELL * 0.94 : DOOR_T, h, d.horiz ? DOOR_T : CELL * 0.94);
-    slab.position.set(0, h / 2, 0);
-    slab.rotation.set(0, 0, (1 - t) * 0.05); // and leans, as the hinges go
   }
 
-  // --- The siege: they hammer, the door gives ------------------------------
+  // --- The siege: they hammer, and something gives -------------------------
   _siege(dt, room) {
-    const st = room.door;
-    if (st.state === "breached") return;
-
     let banging = 0;
     for (const e of this.entities.entities) {
       if (!e.sieging) continue;
@@ -1023,16 +1156,40 @@ export class SafeRooms {
 
     if (!banging || !this.playerIsSafe) return;
 
+    // THE DOOR CANNOT BE HURT. They can stand out there and beat on it until they
+    // lose heart, and all it does is make a noise. The ONLY thing in this room that
+    // can be broken is the vent — and only because you took the grate off it.
+    if (room.underSiegeAt !== "vent") return;
+
+    const st = room.vent;
+    if (st.state !== "open") return;
+
     st.durability -= DECAY_PER_ENTITY * banging * dt;
-    if (st.durability <= 0) {
-      st.durability = 0;
-      st.state = "breached";
-      this.playerIsSafe = false;
-      this.entities.setSiege(null); // no door to besiege — they come in
-      this._rebuildBounds();
-      this._applyDoorVisual(room);
-      this.audio.doorBreach();
-      this.fx.breach();
+    if (st.durability > 0) return;
+
+    // They're through the duct.
+    st.durability = 0;
+    st.state = "breached";
+    this.playerIsSafe = false;
+    this.entities.setSiege(null); // nothing left to besiege — they're coming in
+    this._rebuildBounds();
+    this._applyVentVisual(room);
+    this.audio.doorBreach();
+    this.fx.breach(true);
+  }
+
+  _applyVentVisual(room) {
+    const grate = room.meshes.grate;
+    if (!grate) return;
+    const st = room.vent.state;
+    // Pried off: the grate hangs by one corner. Chewed through: it's gone.
+    grate.visible = st !== "breached";
+    if (st === "open") {
+      grate.rotation.z = 0.9;
+      grate.position.x = -VENT_W * 0.45;
+    } else if (st === "sealed") {
+      grate.rotation.z = 0;
+      grate.position.x = 0;
     }
   }
 
@@ -1061,7 +1218,8 @@ export class SafeRooms {
     this._typeNoise -= dt;
     if (this._typeNoise > 0) return;
     this._typeNoise = TYPE_NOISE_INTERVAL;
-    const radius = room.door.state === "breached" ? TYPE_NOISE_BREACHED : TYPE_NOISE_SAFE;
+    const open = room.door.state === "spent" || room.vent.state === "breached";
+    const radius = open ? TYPE_NOISE_BREACHED : TYPE_NOISE_SAFE;
     this.entities.hearNoise(player.pos.x, player.pos.z, radius);
   }
 
@@ -1074,29 +1232,44 @@ export class SafeRooms {
 
     // Repair is a HOLD, so it gets checked first: it's the only thing that can be
     // in progress across frames.
+    //
+    // There is only ONE thing left to repair: the vent. The door cannot be damaged,
+    // so it cannot be mended, and the planks now exist for exactly one purpose —
+    // undoing the mistake of having opened the grate while they were still outside.
     const atDoor = Math.hypot(s.door.x - px, s.door.z - pz) < REACH;
+    const atVent = Math.hypot(s.vent.x - px, s.vent.z - pz) < REACH;
+
     const canRepair =
-      atDoor && room.door.state !== "breached" && room.door.durability < DOOR_MAX && this.inv.has("plank");
+      atVent && room.vent.state === "open" && room.vent.durability < VENT_MAX && this.inv.has("plank");
 
     if (canRepair && holding) {
       this._repair += dt;
       if (this._repair >= REPAIR_HOLD) {
         this._repair = 0;
         this.inv.take("plank");
-        room.door.durability = Math.min(DOOR_MAX, room.door.durability + PLANK_REPAIR);
+        room.vent.durability = Math.min(VENT_MAX, room.vent.durability + PLANK_REPAIR);
         this.audio.hammer();
-        // Hammering is loud. Boarding up the door tells everything nearby exactly
-        // which door to come to.
+        // Hammering is loud. Boarding up tells everything nearby exactly where you
+        // are and exactly which hole you're worried about.
         this.entities.hearNoise(px, pz, 18);
-        this._applyDoorVisual(room);
       }
       this.prompt = {
-        text: `BOARDING UP… ${Math.round((this._repair / REPAIR_HOLD) * 100)}%`,
+        text: `BOARDING UP VENT… ${Math.round((this._repair / REPAIR_HOLD) * 100)}%`,
         kind: "repair",
       };
       return;
     }
     this._repair = 0;
+
+    // The grate. One pull, and it does not go back on.
+    if (atVent && room.vent.state === "sealed") {
+      this.prompt = { text: "[E] PRY OPEN VENT · ESCAPE ROUTE", kind: "vent" };
+      return;
+    }
+    if (atVent && room.vent.state === "open" && !this.inv.has("plank")) {
+      this.prompt = { text: "VENT OPEN · WALK IN TO CRAWL", kind: "ventOpen" };
+      return;
+    }
 
     if (near(room.switchPos) && !room.switchPulled) {
       this.prompt = { text: `[E] PULL SWITCH ${s.serial}`, kind: "switch" };
@@ -1115,7 +1288,7 @@ export class SafeRooms {
       return;
     }
     if (canRepair) {
-      this.prompt = { text: "[HOLD E] BOARD UP DOOR (+30%)", kind: "repair" };
+      this.prompt = { text: "[HOLD E] BOARD UP VENT (+30%)", kind: "repair" };
       return;
     }
     if (atDoor && room.door.state === "locked") {
@@ -1139,6 +1312,17 @@ export class SafeRooms {
         this.audio.switchPull();
         // A switch being thrown is a hard, mechanical CLANG. It carries.
         this.entities.hearNoise(player.pos.x, player.pos.z, 20);
+        break;
+
+      case "vent":
+        // The grate comes off, and that's irreversible. From here the room has a
+        // soft spot, and the next siege will go straight for it.
+        room.vent.state = "open";
+        this._applyVentVisual(room);
+        this._rebuildBounds();
+        this.audio.ventPry();
+        this.entities.hearNoise(player.pos.x, player.pos.z, 16); // metal on concrete
+        this.fx.ventOpen();
         break;
 
       case "terminal":
@@ -1204,7 +1388,8 @@ export class SafeRooms {
       typed: this.terminal.typed,
       index: room.task.index,
       total: TASK_CODES,
-      breached: room.door.state === "breached",
+      // "You are exposed" — the room is no longer sealed, so your typing carries.
+      breached: room.door.state === "spent" || room.vent.state === "breached",
     };
   }
 

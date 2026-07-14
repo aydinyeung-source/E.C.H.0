@@ -133,7 +133,7 @@ export class Player {
   // Already committed to a vault: carry it through. No input is read at all here.
   _advanceVault(dt, world) {
     const v = this.vault;
-    const step = Math.min(VAULT_SPEED * dt, v.left);
+    const step = Math.min((v.speed || VAULT_SPEED) * dt, v.left);
     this.pos.x += v.dirX * step;
     this.pos.z += v.dirZ * step;
     v.left -= step;
@@ -164,7 +164,15 @@ export class Player {
 
     const gap = horiz ? Math.abs(cz - this.pos.z) : Math.abs(cx - this.pos.x);
     const dist = gap + PLAYER_RADIUS + VAULT_CLEAR;
-    this.vault = { dirX, dirZ, left: dist, total: dist };
+    // A window is vaulted OVER — the camera arcs up and back down. A vent is
+    // crawled INTO, so the same machinery runs with the arc inverted: you drop to
+    // the floor, scrape through, and come up the other side. Same commitment, same
+    // "you cannot stop halfway", opposite shape.
+    this.vault = {
+      dirX, dirZ, left: dist, total: dist,
+      lift: w.crawl ? -VAULT_LIFT * 1.6 : VAULT_LIFT,
+      speed: w.crawl ? VAULT_SPEED * 0.55 : VAULT_SPEED, // a crawl is slow and horrible
+    };
     return true;
   }
 
@@ -224,7 +232,8 @@ export class Player {
     // back down the far side.
     if (this.vault) {
       const p = 1 - this.vault.left / this.vault.total; // 0 -> 1 across the hole
-      offY = Math.sin(p * Math.PI) * VAULT_LIFT;
+      const lift = this.vault.lift === undefined ? VAULT_LIFT : this.vault.lift;
+      offY = Math.sin(p * Math.PI) * lift; // negative lift = ducking through a vent
     }
 
     // Sway along the camera's right vector so it stays relative to where you face.

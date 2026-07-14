@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.46.0";
+const VERSION = "v2.47.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -240,6 +240,20 @@ const WALK_REGEN = 4;  // energy per second regained while walking (not running)
 // is enough that you never had to think about it. At 6 it's ~25, and on a long run
 // the question "can I afford to look?" starts having a real answer.
 const SONAR_COST = 6;
+
+// TEN SECONDS BETWEEN PINGS.
+//
+// The energy cost alone never really bit — you could spam the sonar and simply eat
+// more. A cooldown is a different kind of limit: it doesn't ask what you can afford,
+// it asks what you're going to do with the next ten seconds of darkness. You get one
+// look, and then you have to actually commit to a direction and walk into the black
+// on the strength of it.
+//
+// It also stops the ping being an answer to being hunted. Something has you, and the
+// dish is dead for eight more seconds, and the only tools left are your feet and the
+// map in your head. That is the game.
+const SONAR_COOLDOWN = 10;
+let sonarTimer = 0; // seconds until the sonar is live again
 
 // Crucifix: the panic button, and rare. Brandishing it does three things at once
 // for WARD_TIME seconds: BLINDS every entity in the world (not just the nearest),
@@ -624,6 +638,7 @@ function startRun(rawSeedText, label, isDaily) {
   boostTimer = 0;
   announceTimer = 0;
   interactHeld = false;
+  sonarTimer = 0; // you always arrive with the dish charged
   updateRunButton();
   radar.clear();
   audio.init(); // this is called from a click, so audio is allowed to start
@@ -927,6 +942,8 @@ sonarKeySelect.addEventListener("change", () => {
 function fireSonar() {
   if (!playing) return;
   if (saferooms.terminal) return; // you're nose-to-screen; you can't ping
+  if (sonarTimer > 0) return;     // still recharging — see SONAR_COOLDOWN
+  sonarTimer = SONAR_COOLDOWN;
   sonar.pulse(player.pos);
   radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
   // The sonar itself is SILENT to the player — no ping, no blip. The entities
@@ -1144,6 +1161,7 @@ function loop(now) {
 
   if (announceTimer > 0) announceTimer -= dt;
   if (deathCooldown > 0) deathCooldown -= dt;
+  if (sonarTimer > 0) sonarTimer -= dt;
 
   // Apply run intent before moving: you can only run with energy to spare.
   player.running = runMode && energy > 0;
@@ -1209,7 +1227,11 @@ function loop(now) {
   }
 
   // Radar redraws every frame so blips fade on the same 15s curve as the walls.
-  radar.draw(now * 0.001, player.pos, player.yaw, entities.entities);
+  // The dish's outer ring doubles as the sonar's charge gauge — no HUD widget, no
+  // number, the thing in your hands just visibly comes back to life.
+  const sonarCharge = 1 - Math.max(0, sonarTimer) / SONAR_COOLDOWN;
+  radar.draw(now * 0.001, player.pos, player.yaw, entities.entities, sonarCharge);
+  mcPing.classList.toggle("charging", sonarTimer > 0);
 
   renderer.render(scene, camera);
   requestAnimationFrame(loop);

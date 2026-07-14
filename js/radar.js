@@ -90,7 +90,11 @@ export class Radar {
   }
 
   // `entityList` drives the live threat dots (see below).
-  draw(now, playerPos, yaw, entityList = []) {
+  // `charge` (0..1) is how recharged the sonar is; the dish's outer ring IS the
+  // cooldown gauge. It's put here rather than in a HUD widget on purpose: there is
+  // no popup, no number, no bar with a label — the dish just visibly comes back to
+  // life, the way the thing in your hands would.
+  draw(now, playerPos, yaw, entityList = [], charge = 1) {
     const g = this.ctx;
     const S = this.size;
     const C = this.center;
@@ -173,11 +177,24 @@ export class Radar {
     g.stroke();
     g.restore();
 
-    // Permanent outer wireframe ring.
-    g.strokeStyle = "rgba(57, 255, 20, 0.75)";
+    // --- The outer ring: the sonar's charge -------------------------------
+    // Dead ring = a dead dish. It fills clockwise from the top as the sonar comes
+    // back, and only closes into a full bright circle when you can actually fire.
+    const ready = charge >= 1;
+
+    g.strokeStyle = "rgba(57, 255, 20, 0.14)"; // the empty track
     g.lineWidth = 2;
     g.beginPath();
     g.arc(C, C, C - 2, 0, Math.PI * 2);
     g.stroke();
+
+    if (charge > 0) {
+      g.strokeStyle = ready ? "rgba(57, 255, 20, 0.85)" : "rgba(57, 255, 20, 0.5)";
+      g.lineWidth = ready ? 2.5 : 2;
+      g.beginPath();
+      const start = -Math.PI / 2; // from 12 o'clock
+      g.arc(C, C, C - 2, start, start + Math.PI * 2 * Math.min(1, charge));
+      g.stroke();
+    }
   }
 }

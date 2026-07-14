@@ -1209,6 +1209,14 @@ select:focus {
   box-shadow: 0 0 6px rgba(230, 180, 100, 0.5);
 }
 
+/* The PING button goes dead while the sonar recharges. The radar's outer ring is
+   the actual gauge; this is just so the button doesn't look pressable when it
+   isn't. */
+#mcPing.charging {
+  opacity: 0.35;
+  border-color: rgba(216, 200, 64, 0.18);
+}
+
 /* USE is the single mobile action button: tap to use the selected item or act on
    the current prompt, hold to board up a door. It gets the cyan treatment while a
    safe-room prompt is up, so you can see at a glance that it will act on the room

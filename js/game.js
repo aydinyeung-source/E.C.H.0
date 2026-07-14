@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.52.2";
+const VERSION = "v2.53.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -259,12 +259,23 @@ const WALK_REGEN = 4;  // energy per second regained while walking (not running)
 // Together they stop the ping being an answer to being hunted. Something has you,
 // the dish is dead for another twelve seconds, and all you have left is your feet
 // and the map in your head. That is the game.
-// Both are DERIVED, not typed in. The cooldown IS the glow time — imported, not
-// copied — so retuning how long walls take to fade can never silently leave you
-// pinging into a lit world or waiting in a dark one. Same reason the cost is a
-// fraction of the bar: neither number can drift out of meaning behind your back.
+// THE DARK GAP. The cooldown is the glow time PLUS a deliberate 2.5 seconds, so
+// 17.5s in total.
+//
+// Matching the fade exactly (15s) was too tidy: the last of the light died and the
+// dish came straight back, and you could walk the whole game on a rolling carousel
+// of borrowed light without ever once standing in the black. The extra 2.5s is the
+// point of the whole system — a stretch of pure darkness, every single cycle, where
+// all you have is the map in your head and whatever you can hear.
+//
+// Both numbers stay DERIVED rather than typed in. The cooldown is GLOW_TIME +
+// DARK_GAP (imported, not copied), so retuning how long walls take to fade can never
+// silently swallow the darkness; and the cost is a fraction of the bar, so retuning
+// the bar can't quietly make pinging free. Neither can drift out of meaning behind
+// your back.
+const DARK_GAP = 2.5;
 const SONAR_COST = ENERGY_MAX * 0.15;
-const SONAR_COOLDOWN = GLOW_TIME;
+const SONAR_COOLDOWN = GLOW_TIME + DARK_GAP; // 17.5s
 let sonarTimer = 0; // seconds until the sonar is live again
 
 // Crucifix: the panic button, and rare. Brandishing it does three things at once

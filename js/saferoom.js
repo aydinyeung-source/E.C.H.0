@@ -634,43 +634,61 @@ export class SafeRooms {
     }
     room.meshes.plates = plates;
 
-    // --- The KEYPAD, on the wall right beside the door ----------------------
-    // It used to be bolted to a wall three to five cells out in the hallways, and
-    // nobody could find it. It's now where anyone would actually put a door keypad:
-    // an arm's length from the door it opens, facing the corridor.
+    // --- The KEYPAD, bolted to the DOOR itself -------------------------------
     //
-    // The memory game survives the move, because using it puts a full-screen panel
-    // in front of you — the moment you start typing you cannot see the door any
-    // more. Read it, hold it, enter it blind. There's just no scavenger hunt first.
+    // Third home for this thing, and this one is right.
     //
-    // No code plate on the keypad. If the keypad showed you the code, there would
-    // be nothing to remember.
-    const kpEdge = s.keypad;
-    const kpFace = WALL_T / 2 + 0.02;
-    const kp = {
-      x: kpEdge.x + kpEdge.dir[0] * kpFace,
-      z: kpEdge.z + kpEdge.dir[1] * kpFace,
-    };
-    room.keypadPos = kp;
-    const kpGroup = new THREE.Group();
-    kpGroup.position.set(kp.x, 0, kp.z);
-    // Face out into the corridor.
-    kpGroup.rotation.y = Math.atan2(kpEdge.dir[0], kpEdge.dir[1]);
+    // It started in the hallways, and nobody could find it. Then it moved to the
+    // wall beside the door — and the maths there was actually CORRECT (it really was
+    // on the corridor face, I checked all 196 rooms in a seed) but it was still the
+    // wrong place, because "the wall beside the door" is a different cell of
+    // corridor, and the maze is perfectly entitled to run a wall between that
+    // stretch and the doorway. You could stand at the door looking at a keypad you'd
+    // have to walk half a chunk around to touch.
+    //
+    // On the door, none of that can happen: it is on the outer face, an arm's length
+    // from the code it opens, and if you can reach the door you can reach it.
+    //
+    // The memory game is untouched. Using it throws a full-screen panel up, so the
+    // instant you start typing, the door — and the ten digits painted on it — is
+    // gone from view. Read it, hold it, enter it blind.
+    const dirX = d.dir[0];
+    const dirZ = d.dir[1];
+    const alongAxis = d.horiz ? [1, 0] : [0, 1]; // the axis the door runs along
+    const kpOut = DOOR_T / 2 + 0.07;
+    const kpAlong = 1.8; // off to one side, clear of the code plate
 
-    kpGroup.add(this._box(this.darkMetalMat, 0.58, 0.72, 0.05, 0, 1.5, 0.01)); // backing plate
-    kpGroup.add(this._box(this.keypadMat, 0.46, 0.6, 0.12, 0, 1.5, 0.07));     // the pad itself
-    kpGroup.add(this._box(this.darkMetalMat, 0.5, 0.04, 0.14, 0, 1.17, 0.07)); // lip beneath
-    for (const bx of [-0.24, 0.24]) {
-      for (const by of [1.83, 1.19]) {
-        kpGroup.add(this._rod(this.darkMetalMat, 0.025, 0.04, bx, by, 0.03));  // bolts
+    room.keypadPos = {
+      x: d.x + alongAxis[0] * kpAlong + dirX * kpOut,
+      z: d.z + alongAxis[1] * kpAlong + dirZ * kpOut,
+    };
+
+    // Parented to the DOOR group (whose local axes are world-aligned at rest), so it
+    // swings away with the door once it's open — which is correct: a keypad on an
+    // open door has nothing left to do.
+    const kpGroup = new THREE.Group();
+    kpGroup.position.set(
+      alongAxis[0] * kpAlong + dirX * kpOut,
+      0,
+      alongAxis[1] * kpAlong + dirZ * kpOut
+    );
+    kpGroup.rotation.y = Math.atan2(dirX, dirZ); // face the corridor
+    door.add(kpGroup);
+
+    kpGroup.add(this._box(this.darkMetalMat, 0.5, 0.64, 0.04, 0, 1.45, 0));  // backing plate
+    kpGroup.add(this._box(this.keypadMat, 0.4, 0.54, 0.08, 0, 1.45, 0.05));  // the pad itself
+    kpGroup.add(this._box(this.darkMetalMat, 0.44, 0.04, 0.1, 0, 1.15, 0.05)); // lip beneath
+    for (const bx of [-0.21, 0.21]) {
+      for (const by of [1.74, 1.17]) {
+        kpGroup.add(this._rod(this.darkMetalMat, 0.02, 0.03, bx, by, 0.02)); // bolts
       }
     }
-    // A status lamp: red until the code is in, green after. Visible down the hall,
-    // so you never have to wonder whether you already did this one.
-    const keypadLamp = this._box(this.panicMat, 0.07, 0.07, 0.03, 0.16, 1.83, 0.09);
+    // A status lamp: red until the code is in, green after. It's self-lit and it's
+    // the brightest thing on the door apart from the code — so from down the corridor
+    // you can see BOTH that there's a door and whether you've already opened it.
+    const keypadLamp = this._box(this.panicMat, 0.08, 0.08, 0.03, 0.14, 1.76, 0.07);
     kpGroup.add(keypadLamp);
     room.meshes.keypadLamp = keypadLamp;
-    g.add(kpGroup);
 
     // --- Terminal + locker on the back wall --------------------------------
     const back = this._backWall(s);

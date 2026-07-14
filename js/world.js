@@ -651,7 +651,10 @@ function buildRoomSpec(cx, cy) {
   return {
     key: cx + ":" + cy,
     cx, cy, ri, rj, code,
-    door: { ...door, id: doorId, x: doorPos.x, z: doorPos.z, horiz: door.type === 0 },
+    door: {
+      ...door, id: doorId, x: doorPos.x, z: doorPos.z, horiz: door.type === 0,
+      dir: outward[door.side], // which way is the corridor. the keypad lives on this face.
+    },
     vent: {
       ...vent, id: ventId, x: ventPos.x, z: ventPos.z, horiz: vent.type === 0,
       dir: outward[vent.side],

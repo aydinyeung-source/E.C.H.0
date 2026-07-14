@@ -13,6 +13,9 @@
 import { GLOW_TIME, WAVE_SPEED } from "./reveal.js";
 
 const RANGE = 42; // world units mapped onto the radar's radius
+// Bodies are tracked through walls, but only inside this radius — the dish is a
+// short-range proximity sense, not a map of the whole level.
+const ENTITY_RANGE = 32;
 
 export class Radar {
   constructor(canvas) {
@@ -117,19 +120,32 @@ export class Radar {
       g.stroke();
     }
 
-    // Live threat dots: anything that currently HAS EYES ON YOU shows as a
-    // pulsing red dot — but only if it's close enough for the radar to reach it.
-    // Something watching you from 1000m away never appears.
+    // Live threat dots. Unlike the walls, these are NOT line-of-sight filtered:
+    // the dish picks bodies up through walls. If something is within
+    // ENTITY_RANGE it gets a dot, full stop — you always know roughly where they
+    // are nearby, and the game is about what you do with that, not about being
+    // ambushed by something the radar was hiding from you. Anything further out
+    // than ENTITY_RANGE simply isn't picked up.
+    //
+    // The two states still read differently at a glance:
+    //   dim, steady dot  — it's there, but it hasn't seen you
+    //   bright, pulsing  — it has EYES ON YOU right now
     for (const e of entityList) {
-      if (!e.canSee) continue;
       const d = Math.hypot(e.x - playerPos.x, e.z - playerPos.z);
-      if (d > RANGE) continue;
+      if (d > ENTITY_RANGE) continue;
       const p = this._toRadar(e.x, e.z, playerPos, sin, cos);
-      const pulse = 0.6 + 0.4 * Math.sin(now * 8);
-      g.fillStyle = `rgba(255, 40, 40, ${pulse})`;
-      g.beginPath();
-      g.arc(p.x, p.y, 4, 0, Math.PI * 2);
-      g.fill();
+      if (e.canSee) {
+        const pulse = 0.6 + 0.4 * Math.sin(now * 8);
+        g.fillStyle = `rgba(255, 40, 40, ${pulse})`;
+        g.beginPath();
+        g.arc(p.x, p.y, 4.5, 0, Math.PI * 2);
+        g.fill();
+      } else {
+        g.fillStyle = "rgba(255, 70, 70, 0.42)";
+        g.beginPath();
+        g.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        g.fill();
+      }
     }
 
     // Player marker + heading.

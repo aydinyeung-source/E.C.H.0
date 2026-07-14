@@ -75,18 +75,32 @@ export function installReveal(material) {
         )
         .replace(
           "#include <dithering_fragment>",
+          // Two separate terms, and the split is the whole point:
+          //   echoR    — the LINGERING light, in the surface's OWN colour. Walls
+          //              stay YELLOW after the ring passes and fade over
+          //              uGlowTime. They are not tinted green.
+          //   echoEdge — the sonar RING itself: a brief green flash, only while
+          //              the wavefront is actually sweeping across this point.
+          // So the ring reads green as it travels and leaves the wall lit in its
+          // real colour behind it.
+          // (Temporaries are declared OUTSIDE the loop — the unrolled copies
+          // would redeclare anything defined inside it.)
           `{
             float echoR = 0.0;
+            float echoEdge = 0.0;
             float echoTsp = 0.0;
+            float echoPass = 0.0;
             #pragma unroll_loop_start
             for ( int i = 0; i < 12; i ++ ) {
               echoTsp = uWaves[ i ].w - distance( vEchoWorld, uWaves[ i ].xyz ) / uWaveSpeed;
-              echoR += clamp( 1.0 - echoTsp / uGlowTime, 0.0, 1.0 ) * step( 0.0, echoTsp ) * uWaveOn[ i ];
+              echoPass = step( 0.0, echoTsp ) * uWaveOn[ i ];
+              echoR += clamp( 1.0 - echoTsp / uGlowTime, 0.0, 1.0 ) * echoPass;
+              echoEdge += ( 1.0 - smoothstep( 0.0, 0.30, echoTsp ) ) * echoPass;
             }
             #pragma unroll_loop_end
-            // Peak ~50% brightness (the 0.5), then fades out with echoR.
             echoR = clamp( echoR, 0.0, 1.0 );
-            gl_FragColor.rgb += ( echoSurface * 0.5 + uEchoColor * 0.22 ) * echoR;
+            echoEdge = clamp( echoEdge, 0.0, 1.0 );
+            gl_FragColor.rgb += echoSurface * 0.55 * echoR + uEchoColor * 0.30 * echoEdge;
           }
           #include <dithering_fragment>`
         );

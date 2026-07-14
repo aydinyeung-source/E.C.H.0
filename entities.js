@@ -48,7 +48,12 @@ const BASE_SPEED = 2.2;             // "1x" — a hunter stalking you at close r
 // comfortably slower than your 7.6 sprint.)
 const CHASE_SPEED = Math.min(BASE_SPEED * 2.5, PLAYER_RUN_SPEED * 0.85);
 
-const SIGHT_RANGE = 20;             // how far they can actually see you
+// How far they can actually see you. Deliberately SHORT: it is pitch black down
+// here and they have no light of their own. Standing at the far end of a long
+// straight corridor is NOT automatically being seen — you have to be close for
+// them to pick you out of the dark. This is what makes a straight run past an
+// open junction survivable.
+const SIGHT_RANGE = 12;
 const HEAR_RADIUS = 24;             // how far a sonar ping carries (was 40)
 const CLOSE_RANGE = 5;              // inside this a hunter slows to 1x and stalks
 const LOS_MEMORY = 2;               // seconds it keeps hunting after losing SIGHT
@@ -58,16 +63,33 @@ const KILL_RADIUS = 0.9;
 const ENTITY_RADIUS = 0.35;
 const REPATH_INTERVAL = 0.5;
 
-// Population. Sparse: this place should feel abandoned, not infested. They're
-// placed far away and out of sight — never dropped on top of you — and kept well
-// apart from each other so you never get pincered down one corridor.
-const BASE_POP = 2;
-const MAX_POP = 4;
+// Population. SPARSE — this place is abandoned, not infested. You start with ONE
+// thing out there somewhere, and the world only ever gets more crowded slowly, as
+// a reward for surviving distance.
+//
+// PLACE_COOLDOWN is the important one. Without it the top-up ran every single
+// frame, so the instant something despawned or the target ticked up, a
+// replacement appeared immediately — the population was always pinned at max and
+// two of them were on you inside twenty seconds. Now a new inhabitant can only
+// turn up once every PLACE_COOLDOWN seconds, so thinning them out actually buys
+// you real quiet time.
+const BASE_POP = 1;
+const MAX_POP = 3;
+const POP_PER_METRE = 120;          // +1 to the target every 120m survived
+const PLACE_COOLDOWN = 45;          // seconds between any two new arrivals
 const POP_MIN_DIST = 30;            // always well beyond SIGHT_RANGE
 const POP_MAX_DIST = 50;
 const FOG_HIDE_DIST = 42;           // past here the fog has eaten everything anyway
 const MIN_SEPARATION = 22;
 const DESPAWN = 60;                 // drop ones that fall far behind, then re-place
+
+// Their eyes give off the faintest red light. It reaches barely a couple of
+// metres — it will never light your way — but if one is close and behind you, the
+// wall beside you picks up a dim red wash. It's a warning you catch out of the
+// corner of your eye, so you're not forced to stare at the radar the whole run.
+const EYE_LIGHT_COLOR = 0xff2a2a;
+const EYE_LIGHT_INTENSITY = 0.55;
+const EYE_LIGHT_RANGE = 5;          // metres; falls off to nothing well before you
 
 const _v = new THREE.Vector3();
 
@@ -76,6 +98,20 @@ export class EntitySystem {
     this.scene = scene;
     this.entities = [];
     this.nearest = Infinity;
+    this.placeTimer = PLACE_COOLDOWN; // no new arrivals for the first stretch
+
+    // A FIXED pool of eye lights, created once and never added/removed. Three.js
+    // bakes the light count into every shader it compiles, so adding or removing
+    // a live light forces a full material recompile — which would hitch the frame
+    // exactly when something turns up behind you. Instead these always exist; an
+    // unused one just sits at intensity 0, which costs nothing visually and keeps
+    // the light count constant.
+    this.eyeLights = [];
+    for (let i = 0; i < MAX_POP; i++) {
+      const light = new THREE.PointLight(EYE_LIGHT_COLOR, 0, EYE_LIGHT_RANGE, 2);
+      scene.add(light);
+      this.eyeLights.push(light);
+    }
 
     this.bodyGeo = new THREE.CylinderGeometry(0.22, 0.32, 1.5, 8);
     this.headGeo = new THREE.SphereGeometry(0.26, 10, 8);
@@ -90,8 +126,26 @@ export class EntitySystem {
     for (const e of this.entities) this.scene.remove(e.group);
     this.entities = [];
     this.nearest = Infinity;
+    this.placeTimer = PLACE_COOLDOWN;
+    for (const light of this.eyeLights) light.intensity = 0;
     if (playerPos && world) {
       for (let i = 0; i < BASE_POP; i++) this._place(playerPos, world);
+    }
+  }
+
+  // Park an eye light on each living entity and switch the spares off. Called
+  // every frame, after the entity list has settled.
+  _syncEyeLights() {
+    for (let i = 0; i < this.eyeLights.length; i++) {
+      const light = this.eyeLights[i];
+      const e = this.entities[i];
+      if (!e) {
+        light.intensity = 0; // stays in the scene — see the pool comment above
+        continue;
+      }
+      light.position.set(e.x, 1.62, e.z); // between the eyes
+      // A blinded one's eyes gutter down to almost nothing.
+      light.intensity = e.blindTimer > 0 ? EYE_LIGHT_INTENSITY * 0.25 : EYE_LIGHT_INTENSITY;
     }
   }
 
@@ -259,10 +313,16 @@ export class EntitySystem {
 
   // Returns true if one caught the player.
   update(dt, playerPos, distance, world) {
-    // Keep the world populated. New ones appear far away and out of sight — the
-    // world is stocked, they are never dropped on top of you.
-    const target = Math.min(BASE_POP + Math.floor(distance / 60), MAX_POP);
-    if (this.entities.length < target) this._place(playerPos, world);
+    // Keep the world populated — but SLOWLY. New ones appear far away and out of
+    // sight, and only one can turn up per PLACE_COOLDOWN, so the maze fills in
+    // over minutes rather than seconds. If _place can't find a hidden spot it
+    // returns false and we keep the cooldown spent-out, so it retries next frame
+    // instead of waiting another 45s.
+    this.placeTimer -= dt;
+    const target = Math.min(BASE_POP + Math.floor(distance / POP_PER_METRE), MAX_POP);
+    if (this.entities.length < target && this.placeTimer <= 0) {
+      if (this._place(playerPos, world)) this.placeTimer = PLACE_COOLDOWN;
+    }
 
     let caught = false;
     let nearest = Infinity;
@@ -370,6 +430,7 @@ export class EntitySystem {
       e.group.rotation.y = Math.atan2(dxp, dzp); // eyes on you
     }
 
+    this._syncEyeLights();
     this.nearest = nearest;
     return caught;
   }

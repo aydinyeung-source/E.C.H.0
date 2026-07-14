@@ -112,14 +112,10 @@ const BASE_POP = 1;
 const MAX_POP = 3;
 const POP_PER_METRE = 120;          // +1 to the target every 120m survived
 const PLACE_COOLDOWN = 45;          // seconds between any two new arrivals
-// These all had to move out with the view distance. You can now see ~60m instead
-// of ~35m, and the old numbers placed new arrivals 30-50m away and called them
-// "hidden by fog" past 42m — which would now mean watching one blink into
-// existence down the corridor in plain sight. The whole point of _place is that
-// you must NEVER see one appear.
+// These had to move out with the view distance: you can now see ~60m instead of
+// ~35m, so the old 30-50m arrival ring was well inside your sightline.
 const POP_MIN_DIST = 40;            // far beyond SIGHT_RANGE, and beyond a glance
 const POP_MAX_DIST = 70;            // kept inside the guaranteed-built 72u of world
-const FOG_HIDE_DIST = 65;           // past here the fog really has eaten everything
 const MIN_SEPARATION = 22;
 const DESPAWN = 90;                 // drop ones that fall far behind, then re-place
 
@@ -334,16 +330,23 @@ export class EntitySystem {
   }
 
   // Put one out in the world. It must be far away, clear of the others, and —
-  // critically — SOMEWHERE YOU CANNOT SEE. You must never watch one appear: it's
-  // unfair, it wrecks a run, and it destroys the fiction that they were already
-  // here. A spot only counts as hidden if a wall stands between you and it, or
-  // it's so far out that the fog has swallowed it entirely.
+  // critically — BEHIND A WALL. Not "far enough away", not "lost in the fog":
+  // there must be solid geometry between you and the spot, every time.
   //
-  // If no attempt finds a hidden spot, we place NOTHING and try again next frame.
-  // Being one entity short for a moment is always better than popping one into
-  // view.
+  // The fog used to count as cover, and it was the wrong idea. Something fading
+  // into existence at the far end of a corridor still LOOKS like it spawned, even
+  // if it's dim — and the entire fiction here is that these things were already in
+  // the maze, minding their own business, long before you turned up. If you never
+  // see one arrive, then as far as the game is concerned it was always there. So a
+  // wall it is: it walks out from somewhere you couldn't see, like it had been
+  // there all along.
+  //
+  // If no attempt finds a spot behind a wall, we place NOTHING and try again next
+  // frame. Being one entity short for a moment is always better than popping one
+  // into view — and with a 60m sightline it will be short-handed more often than
+  // it used to be. That's the correct trade.
   _place(playerPos, world) {
-    for (let attempt = 0; attempt < 24; attempt++) {
+    for (let attempt = 0; attempt < 40; attempt++) {
       const angle = Math.random() * Math.PI * 2;
       const dist = POP_MIN_DIST + Math.random() * (POP_MAX_DIST - POP_MIN_DIST);
       const x = playerPos.x + Math.cos(angle) * dist;
@@ -358,14 +361,13 @@ export class EntitySystem {
       }
       if (!clear) continue;
 
-      const behindWall = world.segmentBlocked(playerPos.x, playerPos.z, x, z);
-      const lostToFog = dist > FOG_HIDE_DIST;
-      if (!behindWall && !lostToFog) continue; // you'd have SEEN that. try again.
+      // The only test that matters: is there a wall in the way?
+      if (!world.segmentBlocked(playerPos.x, playerPos.z, x, z)) continue;
 
       this._spawnAt(x, z);
       return true;
     }
-    return false; // nowhere hidden right now — leave it, we'll retry next frame
+    return false; // nothing hidden enough right now — retry next frame
   }
 
   _spawnAt(x, z) {

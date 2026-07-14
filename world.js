@@ -57,11 +57,13 @@ const WINDOW_OPEN = 0.5;   // fraction of the wall that's the gap
 const WINDOW_SILL = 0.95;  // height of the sill you have to clear
 const WINDOW_H = 2.2;      // top of the opening (lintel sits above it)
 
-// Loot lying in the world, per chunk. These are placed IN the level, not spawned
-// around you — an abandoned place with things left in it.
-const CHUNK_MEAT_CHANCE = 0.15;
-const CHUNK_TORCH_CHANCE = 0.05;
-const CHUNK_CRUCIFIX_CHANCE = 0.05;
+// Loot lying in the world, rolled PER CELL — not once per chunk. A chunk is 36
+// cells, so these small per-cell odds add up to roughly two scraps of meat, one
+// torch and one crucifix in every 36x36m chunk. Things are lying about all over
+// the place, the way they would be in a building people left in a hurry.
+const CELL_MEAT_CHANCE = 0.05;
+const CELL_TORCH_CHANCE = 0.03;
+const CELL_CRUCIFIX_CHANCE = 0.03;
 const CHUNK_CELLS = 6;   // cells per chunk edge (bigger = longer unbroken halls)
 const CHUNK_SIZE = CELL * CHUNK_CELLS;
 // Chunks are 6x6 cells (36u). At radius 1 the WORST case — standing at a chunk's
@@ -634,27 +636,52 @@ function roomEdge(type, i, j) {
   return null;
 }
 
-// What loot is lying in this chunk. Deterministic (and seeded), so the daily
-// challenge gives everyone the same supplies in the same places.
+// What loot is lying in this chunk. EVERY CELL gets its own independent roll, so
+// supplies are scattered through the level rather than one lonely item per chunk.
+// Deterministic and seeded, so the daily challenge puts the same things in the
+// same corridors for everyone.
+//
+// A cell can hold at most ONE item: the rolls are checked in order and the first
+// hit wins. Otherwise a lucky cell would produce a little pile of loot sitting on
+// top of itself, which looks like a bug even when it isn't.
+//
+// Safe-room cells are skipped. A room has its own reward locked behind its own
+// task, and finding a free crucifix on the floor next to it would undercut the
+// entire point of going through the door.
 export function chunkItems(cx, cy) {
   const items = [];
+  const room = chunkRoom(cx, cy);
   const rolls = [
-    ["meat", CHUNK_MEAT_CHANCE, 21],
-    ["torch", CHUNK_TORCH_CHANCE, 22],
-    ["crucifix", CHUNK_CRUCIFIX_CHANCE, 23],
+    ["meat", CELL_MEAT_CHANCE, 21],
+    ["torch", CELL_TORCH_CHANCE, 22],
+    ["crucifix", CELL_CRUCIFIX_CHANCE, 23],
   ];
-  for (const [type, chance, salt] of rolls) {
-    if (hash2(cx, cy, salt) >= chance) continue;
-    // Drop it in a deterministic cell of this chunk. Every cell is walkable
-    // (the maze carves passages, it never seals a cell), so any cell will do.
-    const i = cx * CHUNK_CELLS + Math.floor(hash2(cx, cy, salt + 100) * CHUNK_CELLS);
-    const j = cy * CHUNK_CELLS + Math.floor(hash2(cx, cy, salt + 200) * CHUNK_CELLS);
-    items.push({
-      id: `${type}:${cx}:${cy}`, // stable id, so a collected item stays collected
-      type,
-      x: (i + 0.5) * CELL,
-      z: (j + 0.5) * CELL,
-    });
+
+  for (let di = 0; di < CHUNK_CELLS; di++) {
+    for (let dj = 0; dj < CHUNK_CELLS; dj++) {
+      const i = cx * CHUNK_CELLS + di;
+      const j = cy * CHUNK_CELLS + dj;
+
+      if (room && i >= room.ri && i <= room.ri + 1 && j >= room.rj && j <= room.rj + 1) {
+        continue; // inside a safe room — its loot is behind the terminal
+      }
+
+      for (const [type, chance, salt] of rolls) {
+        if (hash2(i, j, salt) >= chance) continue;
+        // Nudge it off the exact centre so a corridor of loot doesn't look like a
+        // conveyor belt. Every cell is walkable (the maze carves passages, it
+        // never seals a cell), so anywhere in it is reachable.
+        const ox = (hash2(i, j, salt + 100) - 0.5) * CELL * 0.5;
+        const oz = (hash2(i, j, salt + 200) - 0.5) * CELL * 0.5;
+        items.push({
+          id: `${type}:${i}:${j}`, // stable id, so a collected item stays collected
+          type,
+          x: (i + 0.5) * CELL + ox,
+          z: (j + 0.5) * CELL + oz,
+        });
+        break; // one item per cell
+      }
+    }
   }
   return items;
 }

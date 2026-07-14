@@ -486,7 +486,7 @@ export function isWindowWall(type, i, j) {
 // SAFE ROOMS
 //
 // 8% of chunks hold one instead of pure hallway: a sealed 2x2-cell room with a
-// heavy door, a terminal, a locker and some loose planks. The room is part of
+// heavy door, a terminal, a locker and a vent. The room is part of
 // the MAZE, not a decoration bolted on top — its walls are real walls, so the
 // carver, the collision, the sightlines and the pathfinder all agree about it.
 //

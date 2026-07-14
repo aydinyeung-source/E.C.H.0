@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.49.0";
+const VERSION = "v2.50.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -56,6 +56,8 @@ const settingsToggle = document.getElementById("settingsToggle");
 const settingsBody = document.getElementById("settingsBody");
 const playtestTag = document.getElementById("playtestTag");
 const deathTag = document.getElementById("deathTag");
+const dangerBar = document.getElementById("dangerBar");
+const dangerFill = document.getElementById("dangerFill");
 const doorBar = document.getElementById("doorBar");
 const doorFill = document.getElementById("doorFill");
 const doorLabel = document.getElementById("doorLabel");
@@ -109,10 +111,10 @@ const audio = new AudioSystem();
 const pickups = new Pickups(scene);
 const radar = new Radar(radarCanvas);
 
-// The safe rooms need to reach into the hotbar (planks in, planks out) and to
-// throw screen effects, so they get two small adapters rather than a reference to
-// the whole game. `give` returns false when the pack is full, which is what makes
-// a plank stay lying on the floor instead of evaporating.
+// The safe rooms need to reach into the hotbar (the locker hands you things) and
+// to throw screen effects, so they get two small adapters rather than a reference
+// to the whole game. `give` returns false when the pack is full, which is what
+// makes a prize stay lying on the floor instead of evaporating.
 const inv = {
   give(type, n = 1) {
     if (capacityFor(type) < n) return false;
@@ -228,6 +230,7 @@ function setPlaying(v) {
   hotbarEl.classList.toggle("hidden", !v);
   torchBar.classList.toggle("hidden", !v);
   radarCanvas.classList.toggle("hidden", !v);
+  dangerBar.classList.toggle("hidden", !v);
   mobileControls.classList.toggle("hidden", !(v && deviceMode === "mobile"));
 }
 let runMode = false; // toggled with Q
@@ -334,7 +337,6 @@ const STACK_MAX = 32; // the default, and the ceiling for food
 // quietly becoming the default answer to everything.
 const STACK_LIMITS = {
   meat: 32,
-  plank: 8,
   torch: 4,
   crucifix: 4,
 };
@@ -381,7 +383,6 @@ function renderHotbar() {
     icon.classList.toggle("meat", filled && item.type === "meat");
     icon.classList.toggle("crucifix", filled && item.type === "crucifix");
     icon.classList.toggle("torch", filled && item.type === "torch");
-    icon.classList.toggle("plank", filled && item.type === "plank");
     el.querySelector(".slot-count").textContent = filled && item.count > 1 ? item.count : "";
   }
 }
@@ -505,7 +506,7 @@ function updateRunButton() {
 // --- Interaction (E / the mobile ACT button) --------------------------------
 // One key does everything a safe room offers, because the game tells you what it
 // will do before you press it. Holding it is a separate thing: that's how you
-// nail a plank across the door.
+// board things up (there is nothing left to board up, but the hold plumbing stays).
 let interactHeld = false;
 
 function interactPress() {
@@ -662,7 +663,7 @@ function startRun(rawSeedText, label, isDaily) {
   entities.reset(player.pos, world);
   audio.resetVoices(); // drop spatial voices from the previous run
   pickups.reset(); // loot lives in the chunks now, not in a pool around you
-  // Every door re-locks, every plank comes back, every locker is shut again.
+  // Every door re-locks, every grate goes back on, every locker is shut again.
   saferooms.reset();
   saferooms.sync(player.pos);
   renderTerminal();
@@ -1069,6 +1070,30 @@ function updateTorch(dt) {
   }
 }
 
+// --- The danger bar ---------------------------------------------------------
+// Proximity to the NEAREST entity, and nothing else. No direction, no count, no
+// names. It answers exactly one question — "is this getting worse?" — which is the
+// only question you can actually act on while standing in the dark.
+//
+// It deliberately does NOT replace the radar. The radar tells you WHERE, and the
+// radar costs you a ping and fifteen seconds of cooldown. This is free, and it is
+// vague on purpose: it can tell you something is close without ever telling you
+// which way to run.
+const DANGER_RANGE = 30; // beyond this the bar is empty
+
+function updateDangerBar() {
+  const d = entities.nearest;
+  const frac = Number.isFinite(d) ? Math.max(0, Math.min(1, 1 - d / DANGER_RANGE)) : 0;
+
+  dangerFill.style.width = frac * 100 + "%";
+  // Green through amber to red. Hue 120 -> 0 as it closes on you.
+  const hue = 120 * (1 - frac);
+  const light = 38 + frac * 14;
+  dangerFill.style.background = `hsl(${hue}, 85%, ${light}%)`;
+  dangerFill.style.boxShadow = frac > 0.05 ? `0 0 ${4 + frac * 12}px hsla(${hue}, 90%, 55%, 0.7)` : "none";
+  dangerBar.classList.toggle("critical", frac > 0.8);
+}
+
 // --- Safe-room HUD ----------------------------------------------------------
 // The door bar and the contextual prompt. A transient announcement ("THE DOOR IS
 // GONE") outranks the prompt while it's alive — at that moment it's the only
@@ -1200,6 +1225,7 @@ function loop(now) {
     // AFTER the entities so it sees this frame's blows against the door.
     saferooms.update(dt, player, interactHeld, world);
     updateSafeRoomHud();
+    updateDangerBar();
 
     // Pick up anything within reach that we have room for (used later, on F).
     const taken = pickups.update(player.pos, (type) => capacityFor(type) > 0);

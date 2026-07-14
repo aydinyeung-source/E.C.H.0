@@ -641,6 +641,50 @@ button.secondary:hover {
   transition: width 0.1s linear;
 }
 
+/* ---------------------------------------------------------------------------
+   THE DANGER BAR
+   How close the NEAREST thing is. It never says which direction, and it never says
+   how many — that's the radar's job, and the radar costs a ping. All it gives you
+   is the one number that matters when you're standing in the dark deciding whether
+   to move: is it getting worse?
+   --------------------------------------------------------------------------- */
+.danger {
+  position: fixed;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  width: min(260px, 46vw);
+  pointer-events: none;
+}
+
+.danger-track {
+  height: 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(232, 227, 207, 0.18);
+  background: rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.danger-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  /* Colour and width are both set from JS — see updateDangerBar(). */
+  transition: width 0.12s linear;
+}
+
+/* Right on top of you: the bar itself starts to panic. */
+.danger.critical .danger-track {
+  border-color: rgba(255, 60, 40, 0.7);
+  animation: dangerPulse 0.32s ease-in-out infinite;
+}
+
+@keyframes dangerPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
 /* Sonar radar, bottom-right. */
 .radar {
   position: fixed;
@@ -821,6 +865,14 @@ button.secondary:hover {
 
 /* The terminal. Deliberately fills the view: while it's up you genuinely cannot
    see the door, which is the entire point of the mechanic. */
+/* FULLY OPAQUE. This is not decoration — it is the mechanic.
+   At 88% you could still make out the ten digits painted on the door behind the
+   panel, which meant you were never entering the code from memory, you were copying
+   it off a slightly dimmed door. The whole point of the keypad is that using it
+   costs you sight of the thing you're trying to remember.
+   Solid black, plus a backdrop blur as a belt-and-braces second line: even if a
+   future tweak reintroduces any transparency, the blur alone destroys legibility of
+   small stencilled numerals. */
 .terminal {
   position: fixed;
   inset: 0;
@@ -828,7 +880,9 @@ button.secondary:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 6, 4, 0.88);
+  background: #01090a;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .term-screen {
@@ -1201,13 +1255,6 @@ select:focus {
 
 /* The radar keeps its green. It is the sonar, and the sonar is the one thing in
    this game that is allowed to be that colour. */
-
-/* A wooden plank, in the hotbar. */
-.slot-icon.plank {
-  border-radius: 2px;
-  background: linear-gradient(180deg, #b98a4c, #7a5628 60%, #59401d);
-  box-shadow: 0 0 6px rgba(230, 180, 100, 0.5);
-}
 
 /* The PING button goes dead while the sonar recharges. The radar's outer ring is
    the actual gauge; this is just so the button doesn't look pressable when it

@@ -45,6 +45,15 @@
     <!-- Contextual [E] prompt: keypad, terminal, vent, locker, board up. -->
     <div class="use-prompt hidden" id="usePrompt"></div>
 
+    <!-- Proximity to the NEAREST entity. Empty = nothing near you; full and red =
+         something is on top of you. It never tells you WHICH direction — that's the
+         radar's job, and the radar costs a ping. -->
+    <div class="danger hidden" id="dangerBar">
+      <div class="danger-track">
+        <div class="danger-fill" id="dangerFill"></div>
+      </div>
+    </div>
+
     <!-- Sonar radar (bottom-right, shown while playing). -->
     <canvas id="radar" class="radar hidden" width="180" height="180"></canvas>
 

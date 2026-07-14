@@ -523,7 +523,8 @@ export class AudioSystem {
     this._noiseBurst(0.6, "bandpass", 3200, 2, 0.3, 0.05); // splintering
   }
 
-  // Nailing a plank across the door: three fast, satisfying hammer blows.
+  // (Unused since the planks were removed. Kept: three fast hammer blows is a
+  //  generically useful noise and it costs nothing to leave here.)
   hammer() {
     if (!this.ctx) return;
     for (let k = 0; k < 3; k++) {

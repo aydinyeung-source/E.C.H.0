@@ -22,10 +22,7 @@
 //   5. THE TASK. The terminal at the back needs codes typed into it. Using it
 //      locks your camera to the screen — you cannot watch the door while you
 //      work. The door loses durability the whole time.
-//   6. THE PLANKS. Three loose planks on the floor. Hold [E] on the door to nail
-//      one in: +30% durability. Every second spent boarding up is a second not
-//      spent on the task.
-//   7. FINISH IT. The terminal chimes, the things outside scatter, and the
+//   6. FINISH IT. The terminal chimes, the things outside scatter, and the
 //      locker pops open with something in it.
 //
 // AND IF THE DOOR GOES DOWN:
@@ -56,8 +53,6 @@ const LOAD_RADIUS = 2;          // chunks around the player whose rooms get buil
 // grate off. See below.)
 const DOOR_H = 2.7;
 const DOOR_T = 0.34;
-const PLANK_REPAIR = 30;
-const REPAIR_HOLD = 1.5;        // seconds of holding [E] to nail one in
 const PUSH_DIST = 1.6;          // how close you must be to shoulder the door
 const REACH = 2.5;              // interaction reach for everything else
 const OPEN_TIME = 2.2;          // how long the door stands open before swinging to
@@ -65,7 +60,6 @@ const THUD_COOLDOWN = 0.7;
 // Durability drain per second, PER besieger. Only the vent has durability now.
 const DECAY_PER_ENTITY = 1.7;
 
-const PLANK_COUNT = 3;
 const TASK_CODES = 3;           // codes to type before the task is done
 const TYPE_NOISE_SAFE = 13;     // how far your typing carries with the door intact
 const TYPE_NOISE_BREACHED = 30; // ...and with the door gone. A dinner bell.
@@ -89,8 +83,8 @@ const DOOR_NOISE_RADIUS = 72;
 // RELOCATES to the vent — it's the weak point and they can smell it — and the vent
 // takes half the punishment a door does before it gives. So the escape hatch is
 // also the thing that will get you killed if you open it early and then decide to
-// stay. Board it back up with a plank if you can. If you can't, you had better be
-// leaving.
+// stay. And it does NOT go back on — there is no boarding it up, no undo, no second
+// chance. If you take that grate off, you had better be leaving through it.
 const VENT_MAX = 55;        // vs the door's 100. It was never built to hold.
 const VENT_H = 0.85;        // a crawl, not a walk
 const VENT_W = 1.1;
@@ -209,55 +203,6 @@ function makeDoorTexture() {
     g.lineTo(x + (Math.random() - 0.5) * 40, y + (Math.random() - 0.5) * 26);
     g.stroke();
   }
-
-  return new THREE.CanvasTexture(c);
-}
-
-// A plank: rough-sawn timber, grain, knots and split ends.
-function makePlankTexture() {
-  const c = document.createElement("canvas");
-  c.width = 256;
-  c.height = 64;
-  const g = c.getContext("2d");
-
-  g.fillStyle = "#9a7440";
-  g.fillRect(0, 0, 256, 64);
-
-  // Grain: long wavering lines down the length of the board.
-  for (let i = 0; i < 70; i++) {
-    const y = Math.random() * 64;
-    g.strokeStyle = `rgba(${70 + Math.random() * 40},${45 + Math.random() * 30},20,${0.1 + Math.random() * 0.3})`;
-    g.lineWidth = 0.5 + Math.random() * 1.6;
-    g.beginPath();
-    g.moveTo(0, y);
-    for (let x = 0; x <= 256; x += 16) {
-      g.lineTo(x, y + Math.sin(x * 0.06 + i) * 1.8);
-    }
-    g.stroke();
-  }
-  // Knots.
-  for (let i = 0; i < 3; i++) {
-    const kx = 30 + Math.random() * 196;
-    const ky = 12 + Math.random() * 40;
-    for (let r = 9; r > 0; r -= 1.6) {
-      g.strokeStyle = `rgba(60,38,16,${0.15 + (9 - r) * 0.06})`;
-      g.lineWidth = 1.2;
-      g.beginPath();
-      g.ellipse(kx, ky, r, r * 0.62, 0.4, 0, Math.PI * 2);
-      g.stroke();
-    }
-  }
-  // Darkened, splintered ends.
-  const capL = g.createLinearGradient(0, 0, 14, 0);
-  capL.addColorStop(0, "rgba(40,26,10,0.55)");
-  capL.addColorStop(1, "rgba(40,26,10,0)");
-  g.fillStyle = capL;
-  g.fillRect(0, 0, 14, 64);
-  const capR = g.createLinearGradient(256, 0, 242, 0);
-  capR.addColorStop(0, "rgba(40,26,10,0.55)");
-  capR.addColorStop(1, "rgba(40,26,10,0)");
-  g.fillStyle = capR;
-  g.fillRect(242, 0, 14, 64);
 
   return new THREE.CanvasTexture(c);
 }
@@ -411,19 +356,12 @@ export class SafeRooms {
     // a lit room you still can't see into.
     this.ductMat = new THREE.MeshPhongMaterial({ color: 0x08090a, shininess: 0 });
     installReveal(this.ductMat);
-    const plankTex = makePlankTexture();
-    this.woodMat = new THREE.MeshPhongMaterial({
-      color: 0xffffff, shininess: 2, map: plankTex,
-      emissive: 0x4a3418, emissiveMap: plankTex,
-    });
-    installReveal(this.woodMat);
 
     // Self-lit bits. These IGNORE the darkness — a screen, a glowing button and a
     // stencilled number are meant to be findable, and a room you can't find is
     // just a wall.
     this.screenMat = new THREE.MeshBasicMaterial({ color: 0x1cff8f });
     this.panicMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
-    this.plankGlowMat = new THREE.MeshBasicMaterial({ color: 0xe8b464 });
     // Self-lit trim. The locker used to be an unlit box in a pitch-black room —
     // which meant it was, for all practical purposes, INVISIBLE until a ping hit
     // it. A cabinet you cannot find is not a reward. Now it wears a cyan status
@@ -820,19 +758,8 @@ export class SafeRooms {
     // make you commit, and it made the vent and the door decisions weightless. The
     // room now has exactly two ways out and no get-out-of-jail card.)
 
-    // --- Planks (once — a plank you took stays taken) ------------------------
-    if (!room._propsSpawned) {
-      room._propsSpawned = true;
-      for (let k = 0; k < PLANK_COUNT; k++) {
-        const a = (k / PLANK_COUNT) * Math.PI * 2 + 0.7;
-        room.props.push({
-          type: "plank",
-          x: s.cxWorld + Math.cos(a) * 3.1,
-          z: s.czWorld + Math.sin(a) * 3.1,
-          rot: a,
-        });
-      }
-    }
+    // (Three planks used to lie on this floor, for nailing the vent back up. They're
+    //  gone: see _interactions. `props` now only ever holds what the locker gives you.)
     for (const p of room.props) {
       if (p.mesh) continue;
       p.mesh = this._propMesh(p);
@@ -862,30 +789,11 @@ export class SafeRooms {
     this._rebuildBounds();
   }
 
-  // A prop lying on the floor. Planks are real timber — grained, nailed, and with
-  // a faint glow strip along the top so you can spot one in an unlit room without
-  // it looking like a floating neon stick.
+  // A prop lying on the floor — these days, only ever the locker's prize.
   _propMesh(p) {
     const group = new THREE.Group();
     group.position.set(p.x, 0, p.z);
     group.rotation.y = p.rot || 0;
-
-    if (p.type === "plank") {
-      const board = new THREE.Mesh(this.boxGeo, this.woodMat);
-      board.scale.set(1.55, 0.08, 0.3);
-      board.position.y = 0.1;
-      board.rotation.z = 0.03; // never perfectly flat — it's junk on a floor
-      group.add(board);
-      // Bent nails still in the ends, and a rusty one lying beside it.
-      for (const nx of [-0.6, 0.6]) {
-        const nail = this._rod(this.darkMetalMat, 0.022, 0.09, nx, 0.16, 0);
-        nail.rotation.z = 0.25;
-        group.add(nail);
-      }
-      // The glow strip: it reads as "you can pick this up", not as a light source.
-      group.add(this._box(this.plankGlowMat, 1.5, 0.012, 0.05, 0, 0.145, 0));
-      return group;
-    }
 
     const item = new THREE.Mesh(this.boxGeo, this.rewardMats[p.type] || this.screenMat);
     item.scale.set(0.32, 0.32, 0.32);
@@ -1267,7 +1175,7 @@ export class SafeRooms {
     }
   }
 
-  // --- Loose props: planks, and whatever the locker coughs up ---------------
+  // --- Loose props: whatever the locker coughs up ---------------------------
   _props(room, player) {
     for (let k = room.props.length - 1; k >= 0; k--) {
       const p = room.props[k];
@@ -1304,36 +1212,16 @@ export class SafeRooms {
     const near = (p) => p && Math.hypot(p.x - px, p.z - pz) < REACH;
     const s = room.spec;
 
-    // Repair is a HOLD, so it gets checked first: it's the only thing that can be
-    // in progress across frames.
+    // NO REPAIRS. The planks are gone, and with them the ability to board anything
+    // back up.
     //
-    // There is only ONE thing left to repair: the vent. The door cannot be damaged,
-    // so it cannot be mended, and the planks now exist for exactly one purpose —
-    // undoing the mistake of having opened the grate while they were still outside.
+    // They only ever existed to undo the one irreversible decision the room asks you
+    // to make — and an irreversible decision you can undo for the price of a bit of
+    // wood on the floor is not a decision. Prying the grate off is now exactly what
+    // it says on the tin: permanent. If you open the vent, the room has a soft spot
+    // for as long as it exists, and you had better be leaving through it.
     const atDoor = Math.hypot(s.door.x - px, s.door.z - pz) < REACH;
     const atVent = Math.hypot(s.vent.x - px, s.vent.z - pz) < REACH;
-
-    const canRepair =
-      atVent && room.vent.state === "open" && room.vent.durability < VENT_MAX && this.inv.has("plank");
-
-    if (canRepair && holding) {
-      this._repair += dt;
-      if (this._repair >= REPAIR_HOLD) {
-        this._repair = 0;
-        this.inv.take("plank");
-        room.vent.durability = Math.min(VENT_MAX, room.vent.durability + PLANK_REPAIR);
-        this.audio.hammer();
-        // Hammering is loud. Boarding up tells everything nearby exactly where you
-        // are and exactly which hole you're worried about.
-        this.entities.hearNoise(px, pz, 18);
-      }
-      this.prompt = {
-        text: `BOARDING UP VENT… ${Math.round((this._repair / REPAIR_HOLD) * 100)}%`,
-        kind: "repair",
-      };
-      return;
-    }
-    this._repair = 0;
 
     // The vent. ONE prompt, and it says the only thing that matters. Prying the
     // grate and going through it are the same act now — you do not unbolt an
@@ -1352,12 +1240,8 @@ export class SafeRooms {
       this.prompt = { text: "TERMINAL", kind: "terminal" };
       return;
     }
-    if (near(room.lockPos) && room.lockerOpen && room.props.some((p) => p.type !== "plank")) {
+    if (near(room.lockPos) && room.lockerOpen && room.props.length) {
       this.prompt = { text: "LOCKER", kind: "locker" };
-      return;
-    }
-    if (canRepair) {
-      this.prompt = { text: "HOLD TO BOARD UP VENT", kind: "repair" };
     }
 
     // NOTHING here tells you the door code. There used to be a prompt that read
@@ -1406,7 +1290,6 @@ export class SafeRooms {
       case "locker":
         for (let k = room.props.length - 1; k >= 0; k--) {
           const p = room.props[k];
-          if (p.type === "plank") continue;
           if (!this.inv.give(p.type, 1)) return;
           if (p.mesh) this.scene.remove(p.mesh);
           room.props.splice(k, 1);

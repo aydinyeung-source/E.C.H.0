@@ -242,7 +242,7 @@ export class EntitySystem {
   // arrives, it finds nothing and drifts back to wandering. It will only actually
   // hunt you if it SEES you.
   //
-  // The sonar is the loud one. Hammering planks into a door and typing at a
+  // The sonar is the loud one. Typing at a
   // terminal are quieter, and pass a smaller radius — but they are still noise,
   // and in here noise is the only currency that matters.
   // `wake` = this noise is loud/strange enough to drag back even something that had

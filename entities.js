@@ -30,9 +30,26 @@ import { RUN_SPEED as PLAYER_RUN_SPEED } from "./player.js";
 // They can't walk through walls: with a sightline they beeline, otherwise they
 // A*-path around the maze.
 //
+// CRUCIALLY, A HUNT ALWAYS ENDS. Two ways out, and both exist so the game is
+// something you can EXPLORE rather than a permanent sprint:
+//
+//   * GIVING UP. Chase you for CHASE_PATIENCE seconds without landing a hand on
+//     you and it stops caring. It goes INDIFFERENT for GIVE_UP_TIME seconds:
+//     it wanders off and cannot see, hear or hunt you at all during that. It has
+//     tried, it has failed, it has better things to do. Without this an entity
+//     that clocked you once would tail you for the entire run and there'd be no
+//     time to do anything but run.
+//
+//   * THE CRUCIFIX. Blinds every one of them, and when the blindness lifts they
+//     have COMPLETELY FORGOTTEN you — no last-known position, no noise to chase,
+//     nothing. They go back to their routes as though you had never been there.
+//     The only way one gets you back is by physically SEEING you again: you, in
+//     its sight range, in its line of view. It is a true reset button.
+//
 // Special states:
 //   * ENRAGED (torch beam in the face) — hunts you through walls, never stalks
-//   * BLINDED (crucifix)               — can't see/hear/track/catch you at all
+//   * BLINDED (crucifix)               — can't see/hear/track/catch you, then forgets
+//   * INDIFFERENT (gave up)            — ignores you entirely and wanders off
 // -----------------------------------------------------------------------------
 
 const BODY_COLOR = 0x0a0a0a;
@@ -58,6 +75,13 @@ const HEAR_RADIUS = 24;             // how far a sonar ping carries (was 40)
 const CLOSE_RANGE = 5;              // inside this a hunter slows to 1x and stalks
 const LOS_MEMORY = 2;               // seconds it keeps hunting after losing SIGHT
 const INVESTIGATE_TIME = 9;         // seconds it spends looking into a noise
+
+// Giving up. CHASE_PATIENCE is how long it will pursue you before deciding this
+// isn't working; GIVE_UP_TIME is how long it then ignores you completely. During
+// that window it cannot see or hear you no matter what you do — you get a
+// guaranteed stretch of quiet to actually explore, loot and (later) do tasks.
+const CHASE_PATIENCE = 18;
+const GIVE_UP_TIME = 30;
 
 const KILL_RADIUS = 0.9;
 const ENTITY_RADIUS = 0.35;
@@ -157,6 +181,7 @@ export class EntitySystem {
     let heard = 0;
     for (const e of this.entities) {
       if (e.blindTimer > 0) continue;                           // deafened too
+      if (e.giveUpTimer > 0) continue;                          // it doesn't care any more
       if (Math.hypot(e.x - x, e.z - z) > HEAR_RADIUS) continue; // too far to carry
       e.nx = x; // where the noise came from
       e.nz = z;
@@ -170,20 +195,38 @@ export class EntitySystem {
 
   // Crucifix: BLINDS EVERY entity for `duration`. A blinded one can't see, hear,
   // track or catch you — it just gropes around where it stands.
+  //
+  // And when it comes round, it has FORGOTTEN YOU. Everything that constitutes
+  // knowing about you is wiped: the hunt, the noise it was walking towards, the
+  // torch rage, the last place it saw you, the route it was taking to get there.
+  // It resumes its own life. The ONLY thing that can bring it back onto you is
+  // physically seeing you again — in range, in line of sight. That's the point of
+  // the crucifix: it doesn't buy you seven seconds, it buys you a clean slate.
   blindAll(duration) {
     for (const e of this.entities) {
       e.blindTimer = duration;
       e.huntTimer = 0;        // it loses you entirely
       e.investigateTimer = 0; // and forgets the noise it was chasing
       e.enrageTimer = 0;      // and snaps out of any torch rage
+      e.chaseTime = 0;
+      e.tx = e.x;             // no last-known position of yours to return to
+      e.tz = e.z;
+      e.nx = e.x;             // and no noise to go and look into
+      e.nz = e.z;
       e.path = null;
+      e.wanderPath = null;    // it'll pick a fresh route of its own when it wakes
     }
     return this.entities.length;
   }
 
   // Torch beam in the face: it tracks you through walls and never stalks.
+  // Note this also drags an INDIFFERENT one back into the fight — one that had
+  // given up and wandered off will not stay disinterested if you go and shine a
+  // light in its eyes. That's on you.
   enrage(entity, duration) {
     if (entity.blindTimer > 0) return;
+    entity.giveUpTimer = 0;
+    entity.chaseTime = 0; // freshly provoked: full patience again
     entity.enrageTimer = Math.max(entity.enrageTimer, duration);
   }
 
@@ -244,6 +287,8 @@ export class EntitySystem {
       investigateTimer: 0, // >0 while it's going to look into a noise
       blindTimer: 0,
       enrageTimer: 0,
+      chaseTime: 0,        // how long this pursuit has been going on and failing
+      giveUpTimer: 0,      // >0 while it has lost interest and is ignoring you
       path: null,
       pathTimer: 0,
       wanderPath: null,    // its own aimless route
@@ -311,6 +356,24 @@ export class EntitySystem {
     e.group.rotation.y = Math.atan2(ax, az);
   }
 
+  // It's had enough. Drop everything it knows about the player, ignore them for
+  // GIVE_UP_TIME, and walk off in roughly the opposite direction so it visibly
+  // breaks away instead of loitering on top of you while pretending not to care.
+  _giveUp(e, playerPos, world) {
+    e.huntTimer = 0;
+    e.investigateTimer = 0;
+    e.enrageTimer = 0;
+    e.chaseTime = 0;
+    e.giveUpTimer = GIVE_UP_TIME;
+    e.path = null;
+
+    const away = Math.atan2(e.z - playerPos.z, e.x - playerPos.x);
+    const spread = away + (Math.random() - 0.5) * 1.2; // not a dead-straight retreat
+    const r = 16 + Math.random() * 12;
+    e.wanderPath = world.findPath(e.x, e.z, e.x + Math.cos(spread) * r, e.z + Math.sin(spread) * r);
+    e.wanderTimer = 8 + Math.random() * 6;
+  }
+
   // Returns true if one caught the player.
   update(dt, playerPos, distance, world) {
     // Keep the world populated — but SLOWLY. New ones appear far away and out of
@@ -348,6 +411,22 @@ export class EntitySystem {
         continue;
       }
 
+      // --- Indifferent (it gave up on you) ---
+      // It is not blind and not stupid — walk into it and it will still take you.
+      // But it is not looking for you, it cannot hear you, and it will not chase.
+      // Use the window.
+      if (e.giveUpTimer > 0) {
+        e.giveUpTimer -= dt;
+        e.canSee = false;
+        nearest = Math.min(nearest, dPlayer);
+        if (dPlayer < KILL_RADIUS) {
+          caught = true;
+          continue;
+        }
+        this._wander(e, dt, world);
+        continue;
+      }
+
       if (dPlayer < KILL_RADIUS) {
         caught = true;
         nearest = Math.min(nearest, dPlayer);
@@ -381,6 +460,24 @@ export class EntitySystem {
       }
 
       const hunting = canSee || enraged || e.huntTimer > 0;
+
+      // --- Patience ---
+      // Time spent pursuing you piles up; time spent not pursuing you bleeds it
+      // back off, but only at HALF rate. So briefly breaking line of sight and
+      // being spotted again doesn't hand it a fresh full tank of patience — a
+      // long, scrappy, on-and-off chase still wears it down and ends. Once it's
+      // out of patience it breaks off and leaves you alone for GIVE_UP_TIME.
+      if (hunting) {
+        e.chaseTime += dt;
+        if (e.chaseTime >= CHASE_PATIENCE) {
+          this._giveUp(e, playerPos, world);
+          e.canSee = false;
+          this._wander(e, dt, world);
+          continue;
+        }
+      } else {
+        e.chaseTime = Math.max(0, e.chaseTime - dt * 0.5);
+      }
 
       // --- Investigating a noise (not you) ---
       // It heard the sonar and is going to look. It does NOT know where you are —

@@ -35,13 +35,14 @@
       <div class="hud-energy-track"><div class="hud-torch-fill" id="torchFill"></div></div>
     </div>
 
-    <!-- Safe-room door durability (shown when a door is damaged or under siege). -->
+    <!-- Vent integrity. The DOOR cannot be broken; the vent can, but only once
+         you've taken the grate off it yourself. -->
     <div class="hud-door hidden" id="doorBar">
-      <span class="hud-energy-label" id="doorLabel">DOOR</span>
+      <span class="hud-energy-label" id="doorLabel">VENT</span>
       <div class="hud-energy-track"><div class="hud-door-fill" id="doorFill"></div></div>
     </div>
 
-    <!-- Contextual [E] prompt: switch, terminal, panic button, board up door. -->
+    <!-- Contextual [E] prompt: keypad, terminal, vent, locker, board up. -->
     <div class="use-prompt hidden" id="usePrompt"></div>
 
     <!-- Sonar radar (bottom-right, shown while playing). -->
@@ -50,26 +51,22 @@
     <!-- Screen flash when a crucifix is brandished. -->
     <div id="wardFlash" class="ward-flash hidden" aria-hidden="true"></div>
 
-    <!-- Halon vent: dense fog + a blaring alarm. You can't see either. -->
-    <div id="halon" class="halon hidden" aria-hidden="true">
-      <div class="halon-fog"></div>
-      <div class="halon-alarm">⚠ HALON DISCHARGE ⚠</div>
-    </div>
-
-    <!-- The terminal. Your camera is bolted to this while it's open; the door is
-         behind you and you cannot see it. -->
+    <!-- One panel, two uses: the door KEYPAD out in the hallway, and the room's
+         TERMINAL. Both bolt your camera to a screen — you cannot look around, you
+         cannot walk, and at the keypad you cannot go back and re-read the code. -->
     <div id="terminalOverlay" class="terminal hidden">
       <div class="term-screen">
         <div class="term-head">
-          <span>SYS/RECLAMATION</span>
+          <span id="termTitle">SYS/RECLAMATION</span>
           <span id="termProgress">0 / 3</span>
         </div>
-        <p class="term-line">AUTHORISE SEQUENCE — ENTER CODE</p>
+        <p class="term-line" id="termLine">AUTHORISE SEQUENCE — ENTER CODE</p>
+        <!-- The keypad shows no code. That's the whole mechanic. -->
         <div class="term-code" id="termCode">0000</div>
         <div class="term-typed" id="termTyped">____</div>
-        <p class="term-warn hidden" id="termWarn">DOOR BREACHED · YOU ARE MAKING NOISE</p>
+        <p class="term-warn hidden" id="termWarn">THE ROOM IS OPEN · YOU ARE MAKING NOISE</p>
         <div class="term-pad" id="termPad"></div>
-        <p class="term-exit">[E] step away from the terminal</p>
+        <p class="term-exit">[E] step away</p>
       </div>
     </div>
 
@@ -79,8 +76,8 @@
       <button class="mc-btn" id="mcPing" type="button">PING</button>
       <button class="mc-btn" id="mcRun" type="button">RUN</button>
       <!-- USE does everything: tap to use the selected item, or to act on whatever
-           the on-screen prompt says (pull a switch, use a terminal, hit the panic
-           button). Hold it to board up a door. -->
+           the on-screen prompt says (enter a code, use a terminal, pry the vent).
+           Hold it to board the vent back up. -->
       <button class="mc-btn" id="mcEat" type="button">USE</button>
       <button class="mc-btn mc-pause" id="mcPause" type="button">II</button>
     </div>
@@ -123,10 +120,12 @@
           <strong>Mobile:</strong> left half moves · right half looks · tap a hotbar slot to select · USE (hold to board up a door)
         </p>
         <p class="controls-hint">
-          <strong>Safe rooms:</strong> find the switch with the matching serial, pull it,
-          then <em>shove the door open</em>. Seal yourself in, finish the terminal, and take
-          what's in the locker — while they take the door apart. Board it up with planks.
-          The red button is one use, ever.
+          <strong>Safe rooms:</strong> read the <em>10-digit code</em> off the door and
+          memorise it — the keypad is somewhere out in the halls and it will not remind
+          you. Enter it, then <em>shove the door open</em>. The door is loud enough to be
+          heard two chunks away, and it holds against anything: what you'll have outside is
+          a crowd. Finish the terminal to scatter them. The vent in the back wall is a
+          crawl-out — but once the grate is off, that's what they'll come through.
         </p>
         <p class="panel-version">Build <strong id="versionLabel">—</strong></p>
         </div>
@@ -183,7 +182,7 @@
         </div>
 
         <div class="leaderboard">
-          <h3>Daily Top 10 <span class="sub">· distance explored</span></h3>
+          <h3>Daily Top 10 <span class="sub">· cells uncovered</span></h3>
           <ol id="leaderboardList"></ol>
         </div>
       </div>
@@ -194,7 +193,7 @@
       <div class="panel">
         <h1 class="dead-title">TAKEN</h1>
         <p class="tagline">Something found you in the dark.</p>
-        <p class="dead-stat">You explored <strong id="gameOverDistance">0m</strong></p>
+        <p class="dead-stat">You uncovered <strong id="gameOverDistance">0 cells</strong></p>
         <button id="tryAgainButton" type="button">Try Again</button>
       </div>
     </div>

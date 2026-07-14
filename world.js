@@ -564,10 +564,16 @@ function buildRoomSpec(cx, cy) {
   const ri = cx * CHUNK_CELLS + a; // room's low cell corner, in global cells
   const rj = cy * CHUNK_CELLS + b;
 
-  // The serial: the door and its switch share this, and it's the only thing
-  // linking the two. You have to READ it off a switch in the dark and remember
-  // it — this is the memory-navigation half of the loop.
-  const serial = String(1000 + Math.floor(hash2(cx, cy, 5154) * 9000));
+  // THE DOOR CODE. Ten digits, stencilled on the door itself.
+  //
+  // The keypad that opens the door is NOT on the door — it's bolted to a wall out
+  // in the hallways, several cells away. So you have to stand at the door, read ten
+  // digits off it in the dark, walk away, and still have them when you get there.
+  // No note, no HUD, no second look without walking back. That's the mechanic: the
+  // only place the code is stored is your head, and something is very possibly
+  // following you while it's in there.
+  let serial = "";
+  for (let k = 0; k < 10; k++) serial += Math.floor(hash2(cx, cy, 5160 + k) * 10);
 
   // Every edge on the room's shell. `out` is the cell on the OUTSIDE of it,
   // which is where a besieging entity will stand.

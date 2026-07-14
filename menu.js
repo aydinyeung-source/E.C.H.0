@@ -214,7 +214,7 @@ export const Menu = {
       const name = document.createElement("span");
       name.textContent = `${i + 1}. ${row.username || "anon"}`;
       const dist = document.createElement("strong");
-      dist.textContent = `${Math.round(row.distance)}m`;
+      dist.textContent = `${Math.round(row.distance)} cells`;
       li.append(name, dist);
       this.list.appendChild(li);
     });

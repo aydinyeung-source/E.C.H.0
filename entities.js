@@ -110,7 +110,12 @@ const REPATH_INTERVAL = 0.5;
 // you real quiet time.
 const BASE_POP = 1;
 const MAX_POP = 3;
-const POP_PER_METRE = 120;          // +1 to the target every 120m survived
+// The score is now CELLS UNCOVERED, not metres, so the population scales off that
+// instead: one more of them for every 20 new cells you've walked into. Roughly the
+// same pacing as the old "every 120m", but it now tracks how much you've EXPLORED
+// rather than how far you happen to be from where you started — so a player who
+// doubles back and searches carefully still draws a crowd eventually.
+const POP_PER_METRE = 20;           // (cells, now — the name is a fossil)
 const PLACE_COOLDOWN = 45;          // seconds between any two new arrivals
 // These had to move out with the view distance: you can now see ~60m instead of
 // ~35m, so the old 30-50m arrival ring was well inside your sightline.

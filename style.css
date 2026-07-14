@@ -802,49 +802,21 @@ button.secondary:hover {
   white-space: nowrap;
 }
 
-/* Halon: a wall of white fog and an alarm you can't ignore. */
-.halon {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.halon-fog {
-  position: absolute;
-  inset: -20%;
-  background:
-    radial-gradient(circle at 30% 40%, rgba(255, 255, 255, 0.85), transparent 55%),
-    radial-gradient(circle at 70% 60%, rgba(230, 245, 255, 0.8), transparent 55%),
-    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.7), transparent 70%),
-    rgba(240, 250, 255, 0.55);
-  animation: halonRoll 2.4s linear infinite;
-  filter: blur(6px);
-}
-
-@keyframes halonRoll {
-  0% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(-3%, 2%) scale(1.08); }
-  100% { transform: translate(0, 0) scale(1); }
-}
-
-.halon-alarm {
-  position: absolute;
-  top: 12%;
-  left: 50%;
-  transform: translateX(-50%);
-  color: #b00000;
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: 0.3em;
-  text-shadow: 0 0 18px rgba(255, 0, 0, 0.8);
-  animation: halonBlink 0.5s steps(2, end) infinite;
-}
-
+/* (The halon overlay lived here — a wall of white fog and a blaring alarm. It went
+   with the panic button.) */
 @keyframes halonBlink {
   0%, 49% { opacity: 1; }
   50%, 100% { opacity: 0.05; }
+}
+
+/* The door keypad's dead readout. It shows dots where a code would be, because it
+   never had the code to show you — you did. */
+.term-code.blind {
+  color: rgba(125, 255, 190, 0.28);
+  font-size: 1.5rem;
+  letter-spacing: 0.18em;
+  text-indent: 0.18em;
+  text-shadow: none;
 }
 
 /* The terminal. Deliberately fills the view: while it's up you genuinely cannot

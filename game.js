@@ -6,7 +6,7 @@
 // and the persisted look-sensitivity setting.
 // -----------------------------------------------------------------------------
 
-import { World, SPAWN, setWorldSeed } from "./world.js";
+import { World, SPAWN, setWorldSeed, CELL } from "./world.js";
 import { Player, BASE_SENSITIVITY } from "./player.js";
 import { SonarSystem } from "./sonar.js";
 import { EntitySystem } from "./entities.js";
@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.38.0";
+const VERSION = "v2.39.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -59,9 +59,10 @@ const doorBar = document.getElementById("doorBar");
 const doorFill = document.getElementById("doorFill");
 const doorLabel = document.getElementById("doorLabel");
 const usePrompt = document.getElementById("usePrompt");
-const halonOverlay = document.getElementById("halon");
 const terminalOverlay = document.getElementById("terminalOverlay");
 const termProgress = document.getElementById("termProgress");
+const termTitle = document.getElementById("termTitle");
+const termLine = document.getElementById("termLine");
 const termCode = document.getElementById("termCode");
 const termTyped = document.getElementById("termTyped");
 const termWarn = document.getElementById("termWarn");
@@ -134,10 +135,8 @@ const inv = {
 };
 
 const fx = {
-  halon(seconds) {
-    halonOverlay.classList.remove("hidden");
-    panicTimer = seconds;
-    announce("HALON DISCHARGE · RUN", seconds);
+  codeAccepted() {
+    announce("CODE ACCEPTED · THE DOOR IS LIVE", 3.5);
   },
   taskDone(reward) {
     announce(`TASK COMPLETE · ${reward.toUpperCase()} IN THE LOCKER`, 4);
@@ -218,10 +217,8 @@ function setPlaying(v) {
     player.touchStrafe = 0;
     torchOn = false; // don't leave the beam burning on a menu
     interactHeld = false;
-    panicTimer = 0;
     doorBar.classList.add("hidden");
     usePrompt.classList.add("hidden");
-    halonOverlay.classList.add("hidden");
   }
   player.enabled = v;
   playtestTag.classList.toggle("hidden", !(v && run.playtest));
@@ -248,12 +245,9 @@ const WARD_TIME = 7;        // seconds of blindness + speed
 const WARD_SPEED_BOOST = 1.45;
 let boostTimer = 0;
 
-// The halon vent (safe-room panic button). While the gas is in the air you get a
-// hard sprint that ignores your energy entirely — you are running on pure terror
-// and you cannot see a thing. Five seconds to get out through a room full of
-// stunned bodies.
-const PANIC_SPEED_BOOST = 1.6;
-let panicTimer = 0;
+// (The halon vent lived here. It was a free undo for every mistake a safe room can
+//  make you commit — and a room with a get-out-of-jail card in it is a room where
+//  none of the other decisions cost you anything.)
 
 // Torch: shows you a slice of what's ahead — but shine it at something and you
 // ENRAGE it.
@@ -301,7 +295,27 @@ let energy = ENERGY_MAX; // drained by running/sonar, refilled by eating
 // number keys or the scroll wheel (or by tapping it on mobile); F eats whatever
 // is in the selected slot.
 const HOTBAR_SLOTS = 9;
-const STACK_MAX = 64;
+const STACK_MAX = 32; // the default, and the ceiling for food
+
+// STACK SIZES ARE A BALANCE LEVER, not a storage detail.
+//
+// A stack limit is really a limit on how much of a thing you can carry at all,
+// because you only have nine slots and everything competes for them. Food stacks
+// deep (32) because it's mundane and you burn through it. The crucifix and the
+// torch stack four — so hoarding them costs you slots you'd rather have free, and
+// a run where you're carrying eight crucifixes is a run where you're carrying
+// almost nothing else. That's the trade, and it's what stops the panic item from
+// quietly becoming the default answer to everything.
+const STACK_LIMITS = {
+  meat: 32,
+  plank: 8,
+  torch: 4,
+  crucifix: 4,
+};
+
+function stackLimit(type) {
+  return STACK_LIMITS[type] ?? STACK_MAX;
+}
 let hotbar = Array.from({ length: HOTBAR_SLOTS }, () => ({ type: null, count: 0 }));
 let selectedSlot = 0;
 
@@ -366,21 +380,25 @@ function resetHotbar() {
 
 // Room left for a given item type (so a full pack leaves things on the ground).
 function capacityFor(type) {
+  const max = stackLimit(type);
   let cap = 0;
   for (const s of hotbar) {
-    if (s.type === type) cap += STACK_MAX - s.count;
-    else if (s.type === null || s.count === 0) cap += STACK_MAX;
+    if (s.type === type) cap += max - s.count;
+    else if (s.type === null || s.count === 0) cap += max;
   }
   return cap;
 }
 
-// Top up existing stacks first, then spill into empty slots.
+// Top up existing stacks first, then spill into empty slots. A fifth crucifix
+// starts a SECOND stack in a new slot rather than deepening the first — which is
+// exactly the cost: it eats a slot.
 function addItem(type, n) {
+  const max = stackLimit(type);
   let left = n;
   for (const s of hotbar) {
     if (left <= 0) break;
-    if (s.type === type && s.count < STACK_MAX) {
-      const take = Math.min(left, STACK_MAX - s.count);
+    if (s.type === type && s.count < max) {
+      const take = Math.min(left, max - s.count);
       s.count += take;
       left -= take;
     }
@@ -389,7 +407,7 @@ function addItem(type, n) {
     if (left <= 0) break;
     if (s.type === null || s.count === 0) {
       s.type = type;
-      const take = Math.min(left, STACK_MAX);
+      const take = Math.min(left, max);
       s.count = take;
       left -= take;
     }
@@ -503,9 +521,21 @@ function renderTerminal() {
   const view = saferooms.terminalView();
   terminalOverlay.classList.toggle("hidden", !view);
   if (!view) return;
+
+  termTitle.textContent = view.title;
+  termLine.textContent = view.line;
   termProgress.textContent = `${view.index} / ${view.total}`;
-  termCode.textContent = view.target;
-  termTyped.textContent = view.typed.padEnd(4, "_");
+
+  // THE KEYPAD SHOWS NOTHING. No code, no hint, and the digits you've entered come
+  // back as blanks — because a readout that echoes your typing is a readout you can
+  // check your memory against, and then you're not remembering ten digits, you're
+  // remembering one at a time. It tells you only how many it has swallowed.
+  const keypad = view.kind === "keypad";
+  termCode.textContent = keypad ? "· · · · · · · · · ·" : view.target;
+  termCode.classList.toggle("blind", keypad);
+  termTyped.textContent = keypad
+    ? "•".repeat(view.typed.length).padEnd(view.need, "_")
+    : view.typed.padEnd(view.need, "_");
   termWarn.classList.toggle("hidden", !view.breached);
 }
 
@@ -563,6 +593,7 @@ function startRun(rawSeedText, label, isDaily) {
   run.isDaily = isDaily;
   run.date = todayUTC();
   run.maxDistance = 0;
+  visitedCells.clear();
   // Immunity is decided ONCE, here, and frozen for the whole run — it can't be
   // switched off partway through to launder a run into a real score.
   run.playtest = Menu.isPlaytester && Menu.playtest;
@@ -588,10 +619,8 @@ function startRun(rawSeedText, label, isDaily) {
   torchOn = false;
   torchCharge = 0;
   boostTimer = 0;
-  panicTimer = 0;
   announceTimer = 0;
   interactHeld = false;
-  halonOverlay.classList.add("hidden");
   updateRunButton();
   radar.clear();
   audio.init(); // this is called from a click, so audio is allowed to start
@@ -637,7 +666,7 @@ function showPause() {
 function showGameOver() {
   setPlaying(false);
   submitScoreIfDaily();
-  gameOverDistance.textContent = Math.round(run.maxDistance) + "m";
+  gameOverDistance.textContent = run.maxDistance + " cells";
   gameOverOverlay.classList.remove("hidden");
 }
 
@@ -1037,15 +1066,28 @@ function updateSafeRoomHud() {
   renderTerminal();
 }
 
-// --- Distance tracking ------------------------------------------------------
-// "Distance explored" = furthest straight-line distance reached from spawn.
-function updateDistance() {
+// --- Cells uncovered --------------------------------------------------------
+// The score is now HOW MUCH OF THE MAZE YOU SAW, not how far you got from spawn.
+//
+// Straight-line distance rewarded exactly one behaviour: pick a direction and
+// sprint down it. Everything the game is actually about — searching rooms, working
+// out a safe-room code, doubling back, going the long way round something that's
+// hunting you — scored zero, and sometimes scored NEGATIVE, because looping back
+// towards spawn made your number stop moving.
+//
+// Counting distinct cells you've set foot in fixes that: every new corridor is
+// worth the same as any other, and a run that goes deep into one wing is worth the
+// same as one that sprawls. It also means you cannot pad the score by pacing — a
+// cell you've already been in never counts twice.
+const visitedCells = new Set();
+
+function updateCells() {
   if (!playing) return;
-  const dx = player.pos.x - SPAWN.x;
-  const dz = player.pos.z - SPAWN.z;
-  const d = Math.sqrt(dx * dx + dz * dz);
-  if (d > run.maxDistance) run.maxDistance = d;
-  distanceTag.textContent = Math.round(run.maxDistance) + "m";
+  const i = Math.floor(player.pos.x / CELL);
+  const j = Math.floor(player.pos.z / CELL);
+  visitedCells.add(i + "," + j);
+  run.maxDistance = visitedCells.size; // the leaderboard column is still numeric
+  distanceTag.textContent = run.maxDistance + " cells";
 }
 
 // --- The home screen's live background ---------------------------------------
@@ -1089,12 +1131,8 @@ function loop(now) {
     updateMenuScene(dt);
   }
 
-  // Speed boosts. The halon vent outranks the crucifix — it's the bigger panic.
-  if (panicTimer > 0) {
-    panicTimer -= dt;
-    player.boost = PANIC_SPEED_BOOST;
-    if (panicTimer <= 0) halonOverlay.classList.add("hidden");
-  } else if (boostTimer > 0) {
+  // Crucifix adrenaline: a temporary speed multiplier.
+  if (boostTimer > 0) {
     boostTimer -= dt;
     player.boost = WARD_SPEED_BOOST;
   } else {
@@ -1104,9 +1142,8 @@ function loop(now) {
   if (announceTimer > 0) announceTimer -= dt;
   if (deathCooldown > 0) deathCooldown -= dt;
 
-  // Apply run intent before moving: you can only run with energy to spare —
-  // except on halon, where you sprint on adrenaline whether you have it or not.
-  player.running = (runMode && energy > 0) || panicTimer > 0;
+  // Apply run intent before moving: you can only run with energy to spare.
+  player.running = runMode && energy > 0;
   player.update(dt, world);
   audio.updateListener(camera); // 3D listener follows your head every frame
   world.update(player.pos);
@@ -1114,14 +1151,13 @@ function loop(now) {
   sonar.update(dt);
   pickups.sync(world); // stream chunk loot in/out with its chunk
   pickups.animate(now * 0.001);
-  updateDistance();
+  updateCells();
 
   // Entities only hunt while actively playing (and alive).
   if (playing && !dead) {
     // Running drains energy; walking slowly gives it back, so backing off to a
-    // walk is a real recovery option rather than just being slower. The halon
-    // sprint is free — that's the whole point of it.
-    if (player.running && player.moving && panicTimer <= 0) {
+    // walk is a real recovery option rather than just being slower.
+    if (player.running && player.moving) {
       energy = Math.max(0, energy - RUN_DRAIN * dt);
     } else if (player.moving) {
       energy = Math.min(ENERGY_MAX, energy + WALK_REGEN * dt);

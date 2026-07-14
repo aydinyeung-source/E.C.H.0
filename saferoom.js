@@ -71,8 +71,9 @@ const TYPE_NOISE_SAFE = 13;     // how far your typing carries with the door int
 const TYPE_NOISE_BREACHED = 30; // ...and with the door gone. A dinner bell.
 const TYPE_NOISE_INTERVAL = 2.0;
 
-const PANIC_RADIUS = 20;
-const PANIC_STUN = 5;
+// Two chunks. A chunk is 36m, so the door is heard 72m away — three times further
+// than a sonar ping carries, and further than you can see.
+const DOOR_NOISE_RADIUS = 72;
 
 // --- THE VENT ---------------------------------------------------------------
 // A crawlspace in the BACK wall, as far from the door as the room gets. Behind a
@@ -261,67 +262,94 @@ function makePlankTexture() {
   return new THREE.CanvasTexture(c);
 }
 
-// The KeySwitch housing: a fire-alarm box. Red, weathered, and it says PULL DOWN,
-// because in the dark you will want to be very sure before you commit to it.
-function makeSwitchTexture() {
-  const c = document.createElement("canvas");
-  c.width = c.height = 128;
-  const g = c.getContext("2d");
-
-  const base = g.createLinearGradient(0, 0, 0, 128);
-  base.addColorStop(0, "#d4463a");
-  base.addColorStop(1, "#96261d");
-  g.fillStyle = base;
-  g.fillRect(0, 0, 128, 128);
-
-  g.strokeStyle = "rgba(0,0,0,0.4)";
-  g.lineWidth = 4;
-  g.strokeRect(6, 6, 116, 116);
-  g.strokeStyle = "rgba(255,220,210,0.25)";
-  g.lineWidth = 1.5;
-  g.strokeRect(9, 9, 110, 110);
-
-  g.fillStyle = "rgba(255,235,230,0.92)";
-  g.font = "bold 15px 'Courier New', monospace";
-  g.textAlign = "center";
-  g.fillText("PULL", 64, 30);
-  g.font = "bold 10px 'Courier New', monospace";
-  g.fillText("DOWN", 64, 43);
-
-  // The slot the lever travels in.
-  g.fillStyle = "rgba(0,0,0,0.55)";
-  g.fillRect(52, 54, 24, 56);
-  g.fillStyle = "rgba(255,255,255,0.12)";
-  g.fillRect(52, 54, 24, 3);
-
-  // Grime and chipped paint.
-  for (let i = 0; i < 500; i++) {
-    g.fillStyle = `rgba(0,0,0,${Math.random() * 0.14})`;
-    g.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
-  }
-  return new THREE.CanvasTexture(c);
-}
+// (The fire-alarm KeySwitch texture lived here. The lever is gone: pulling a
+//  handle asked nothing of the player except walking to it. The keypad asks you to
+//  carry ten digits through a dark maze, which is a very different thing.)
 
 // A canvas texture of the 4-digit serial, self-lit so it can actually be READ in
 // the pitch dark. This is the one concession: without it the whole mechanic would
 // be "wander around hoping", because you cannot read stencilled paint by echo.
+// Ten digits is a lot to hold in your head, so the plate does the one thing it
+// honestly can to help: it GROUPS them, 3-3-4, the way a phone number is grouped.
+// That's the difference between remembering ten things and remembering three.
 function makeSerialTexture(serial) {
   const c = document.createElement("canvas");
-  c.width = 256;
-  c.height = 128;
+  c.width = 512;
+  c.height = 160;
   const g = c.getContext("2d");
+
   g.fillStyle = "#04161c";
-  g.fillRect(0, 0, 256, 128);
+  g.fillRect(0, 0, 512, 160);
   g.strokeStyle = "#27e0ff";
-  g.lineWidth = 4;
-  g.strokeRect(6, 6, 244, 116);
-  g.fillStyle = "#8ff4ff";
-  g.font = "bold 74px 'Courier New', monospace";
+  g.lineWidth = 5;
+  g.strokeRect(8, 8, 496, 144);
+
+  g.fillStyle = "rgba(143, 244, 255, 0.55)";
+  g.font = "bold 20px 'Courier New', monospace";
   g.textAlign = "center";
+  g.fillText("DOOR CODE", 256, 38);
+
+  const grouped = `${serial.slice(0, 3)} ${serial.slice(3, 6)} ${serial.slice(6)}`;
+  g.fillStyle = "#8ff4ff";
+  g.font = "bold 58px 'Courier New', monospace";
   g.textBaseline = "middle";
   g.shadowColor = "#27e0ff";
-  g.shadowBlur = 18;
-  g.fillText(serial, 128, 68);
+  g.shadowBlur = 20;
+  g.fillText(grouped, 256, 100);
+
+  return new THREE.CanvasTexture(c);
+}
+
+// The keypad's own face: a grubby steel plate with a 3x4 grid of keys pressed into
+// it and a little green readout above them.
+function makeKeypadTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+
+  const base = g.createLinearGradient(0, 0, 0, 256);
+  base.addColorStop(0, "#6d7681");
+  base.addColorStop(1, "#4a525b");
+  g.fillStyle = base;
+  g.fillRect(0, 0, 256, 256);
+
+  // Readout.
+  g.fillStyle = "#06170f";
+  g.fillRect(28, 22, 200, 48);
+  g.strokeStyle = "rgba(0,0,0,0.5)";
+  g.lineWidth = 3;
+  g.strokeRect(28, 22, 200, 48);
+  g.fillStyle = "#1cff8f";
+  g.font = "bold 26px 'Courier New', monospace";
+  g.textAlign = "center";
+  g.shadowColor = "#1cff8f";
+  g.shadowBlur = 12;
+  g.fillText("- - - - - - - - - -", 128, 55);
+  g.shadowBlur = 0;
+
+  // Keys.
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
+  let k = 0;
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 3; col++) {
+      const x = 44 + col * 60;
+      const y = 88 + row * 40;
+      g.fillStyle = "rgba(0,0,0,0.4)";
+      g.fillRect(x - 2, y - 2, 48, 32);
+      g.fillStyle = "#9aa3ad";
+      g.fillRect(x, y, 46, 30);
+      g.fillStyle = "rgba(255,255,255,0.25)";
+      g.fillRect(x, y, 46, 4);
+      g.fillStyle = "#1c2126";
+      g.font = "bold 20px 'Courier New', monospace";
+      g.fillText(keys[k++], x + 23, y + 22);
+    }
+  }
+
+  for (let i = 0; i < 600; i++) {
+    g.fillStyle = `rgba(0,0,0,${Math.random() * 0.12})`;
+    g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+  }
   return new THREE.CanvasTexture(c);
 }
 
@@ -332,13 +360,16 @@ export class SafeRooms {
     this.audio = audio;
     this.entities = entities;
     this.inv = inv; // { give(type,n), has(type), take(type) }
-    this.fx = fx;   // { halon(), taskDone(), breach() } — screen/HUD effects
+    this.fx = fx;   // { codeAccepted, taskDone, breach, ventOpen, doorSpent }
 
     this.rooms = new Map();     // chunk key -> room state (SURVIVES streaming)
     this.playerIsSafe = false;
     this.active = null;         // the room you're standing in or at
     this.prompt = null;         // { text, kind } for the HUD
-    this.terminal = null;       // { room, typed } while the camera is on a screen
+    // ONE panel, two uses: the door KEYPAD out in the hall, and the TERMINAL in
+    // the room. Both lock your camera to a screen and eat digits; they differ only
+    // in what they want and what happens when they get it.
+    this.terminal = null;       // { room, kind: "keypad"|"terminal", typed }
     this.hud = null;            // { pct, sieging } for the durability bar
     this._repair = 0;           // seconds of [E] held on the door so far
     this._thud = 0;
@@ -364,12 +395,12 @@ export class SafeRooms {
     installReveal(this.doorMat, cyanFlash);
     this.wreckMat = new THREE.MeshPhongMaterial({ color: 0x3a3f46, shininess: 0, emissive: 0x14171a });
     installReveal(this.wreckMat);
-    const switchTex = makeSwitchTexture();
-    this.switchMat = new THREE.MeshPhongMaterial({
-      color: 0xffffff, shininess: 18, map: switchTex,
-      emissive: 0x6a2a24, emissiveMap: switchTex, // a red box you can just make out
+    const keypadTex = makeKeypadTexture();
+    this.keypadMat = new THREE.MeshPhongMaterial({
+      color: 0xffffff, shininess: 18, map: keypadTex,
+      emissive: 0x4a5158, emissiveMap: keypadTex, // faintly lit; findable in the dark
     });
-    installReveal(this.switchMat, cyanFlash);
+    installReveal(this.keypadMat, cyanFlash);
     this.metalMat = new THREE.MeshPhongMaterial({
       color: 0x767f8a, shininess: 30, specular: 0x445062, emissive: 0x2b3138,
     });
@@ -393,7 +424,6 @@ export class SafeRooms {
     this.screenMat = new THREE.MeshBasicMaterial({ color: 0x1cff8f });
     this.panicMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
     this.plankGlowMat = new THREE.MeshBasicMaterial({ color: 0xe8b464 });
-    this.leverMat = new THREE.MeshBasicMaterial({ color: 0xffe36b });
     // Self-lit trim. The locker used to be an unlit box in a pitch-black room —
     // which meant it was, for all practical purposes, INVISIBLE until a ping hit
     // it. A cabinet you cannot find is not a reward. Now it wears a cyan status
@@ -470,7 +500,6 @@ export class SafeRooms {
       switchPulled: false,
       task: { index: 0, done: false },
       lockerOpen: false,
-      panicUsed: false,
       reward: REWARDS[n % REWARDS.length],
       props: [], // planks, and later the locker's contents
       _propsSpawned: false,
@@ -596,42 +625,34 @@ export class SafeRooms {
     }
     room.meshes.plates = plates;
 
-    // --- The KeySwitch, out in the hallways --------------------------------
-    // A proper fire-alarm assembly: a backing plate bolted to the wall, the red
-    // housing, a hinged lever arm with a ball grip, and the serial glowing above
-    // it. The lever ARM is what moves when you pull it — it swings down on its own
-    // pivot and stays down, so a switch you've already pulled reads as pulled from
-    // across the corridor.
-    const sw = this._switchPlacement(s);
-    room.switchPos = sw;
-    const swGroup = new THREE.Group();
-    swGroup.position.set(sw.x, 0, sw.z);
-    swGroup.rotation.y = sw.yaw;
+    // --- The KEYPAD, out in the hallways ------------------------------------
+    // Deliberately NOT on the door. The code is on the door; the keypad that eats
+    // it is bolted to a wall three to five cells away. You cannot see one from the
+    // other, and that is the entire point — the ten digits have to make the trip
+    // inside your head.
+    //
+    // No serial plate here. If the keypad told you the code, there would be nothing
+    // to remember.
+    const kp = this._keypadPlacement(s);
+    room.keypadPos = kp;
+    const kpGroup = new THREE.Group();
+    kpGroup.position.set(kp.x, 0, kp.z);
+    kpGroup.rotation.y = kp.yaw;
 
-    swGroup.add(this._box(this.darkMetalMat, 0.56, 0.78, 0.05, 0, 1.5, 0.01));  // backing plate
-    swGroup.add(this._box(this.switchMat, 0.44, 0.64, 0.14, 0, 1.5, 0.08));     // housing
-    swGroup.add(this._box(this.darkMetalMat, 0.5, 0.05, 0.16, 0, 1.16, 0.08));  // lip beneath
-    // Two bolts, top corners.
-    for (const bx of [-0.22, 0.22]) {
-      swGroup.add(this._rod(this.darkMetalMat, 0.03, 0.04, bx, 1.83, 0.03));
+    kpGroup.add(this._box(this.darkMetalMat, 0.58, 0.72, 0.05, 0, 1.5, 0.01)); // backing plate
+    kpGroup.add(this._box(this.keypadMat, 0.46, 0.6, 0.12, 0, 1.5, 0.07));     // the pad itself
+    kpGroup.add(this._box(this.darkMetalMat, 0.5, 0.04, 0.14, 0, 1.17, 0.07)); // lip beneath
+    for (const bx of [-0.24, 0.24]) {
+      for (const by of [1.83, 1.19]) {
+        kpGroup.add(this._rod(this.darkMetalMat, 0.025, 0.04, bx, by, 0.03));  // bolts
+      }
     }
-
-    // The lever, on its own pivot at the top of the slot.
-    const leverPivot = new THREE.Group();
-    leverPivot.position.set(0, 1.62, 0.15);
-    const arm = this._rod(this.leverMat, 0.035, 0.34, 0, -0.17, 0);
-    const grip = new THREE.Mesh(this.knobGeo, this.leverMat);
-    grip.scale.set(0.075, 0.075, 0.075);
-    grip.position.set(0, -0.36, 0);
-    leverPivot.add(arm, grip);
-    swGroup.add(leverPivot);
-    room.meshes.lever = leverPivot;
-
-    const swPlate = new THREE.Mesh(this.plateGeo, serialMat);
-    swPlate.scale.set(0.62, 0.62, 1);
-    swPlate.position.set(0, 2.06, 0.03);
-    swGroup.add(swPlate);
-    g.add(swGroup);
+    // A status lamp: red until the code is in, green after. Visible down the hall,
+    // so you never have to wonder whether you already did this one.
+    const lamp = this._box(this.panicMat, 0.07, 0.07, 0.03, 0.16, 1.83, 0.09);
+    kpGroup.add(lamp);
+    room.meshes.keypadLamp = lamp;
+    g.add(kpGroup);
 
     // --- Terminal + locker on the back wall --------------------------------
     const back = this._backWall(s);
@@ -727,31 +748,10 @@ export class SafeRooms {
     g.add(ventGroup);
     room.ventPos = { x: v.x, z: v.z };
 
-    // --- The panic button, in the MIDDLE of the room -------------------------
-    // On a floor pedestal, dead centre, under its own little lamp. It's the last
-    // thing in the room and it should be the first thing you see when you get in —
-    // and when you're cornered, you want it reachable from anywhere, not bolted to
-    // one specific wall you might be pinned away from.
-    const panicGroup = new THREE.Group();
-    panicGroup.position.set(s.cxWorld, 0, s.czWorld);
-    panicGroup.add(this._box(this.darkMetalMat, 0.5, 0.06, 0.5, 0, 0.03, 0));   // base plate
-    panicGroup.add(this._rod(this.metalMat, 0.09, 1.0, 0, 0.53, 0));            // post
-    panicGroup.add(this._box(this.metalMat, 0.42, 0.14, 0.42, 0, 1.08, 0));     // head housing
-    panicGroup.add(this._box(this.darkMetalMat, 0.46, 0.03, 0.46, 0, 1.16, 0)); // collar
-    const head = new THREE.Mesh(this.knobGeo, this.panicMat);
-    head.scale.set(0.15, 0.08, 0.15);
-    head.position.set(0, 1.2, 0);
-    panicGroup.add(head);
-    // Four guard posts, so you can't fall onto it.
-    for (const gx of [-1, 1]) {
-      for (const gz of [-1, 1]) {
-        panicGroup.add(this._rod(this.darkMetalMat, 0.022, 0.3, gx * 0.19, 1.28, gz * 0.19));
-      }
-    }
-    panicGroup.add(this._box(this.trimMat, 0.36, 0.02, 0.02, 0, 0.99, 0.21)); // label strip
-    g.add(panicGroup);
-    room.meshes.panic = head;
-    room.panicPos = { x: s.cxWorld, z: s.czWorld };
+    // (There is no panic button. There used to be a halon vent on a pedestal in
+    // the middle of the room; it was a free "undo" for every mistake the room can
+    // make you commit, and it made the vent and the door decisions weightless. The
+    // room now has exactly two ways out and no get-out-of-jail card.)
 
     // --- Planks (once — a plank you took stays taken) ------------------------
     if (!room._propsSpawned) {
@@ -779,7 +779,9 @@ export class SafeRooms {
     // away and rebuilds when you come back, so a lever you pulled ten minutes ago
     // has to still be DOWN, and a locker you opened has to still be OPEN — a room
     // that silently reset itself on a chunk reload would be a nasty bug to chase.
-    if (room.switchPulled && room.meshes.lever) room.meshes.lever.rotation.x = 1.15;
+    if (room.switchPulled && room.meshes.keypadLamp) {
+      room.meshes.keypadLamp.material = this.trimLitMat;
+    }
     if (room.lockerOpen) {
       if (room.meshes.lockerDoor) {
         room.meshes.lockerDoor.rotation.y = -1.1;
@@ -788,8 +790,6 @@ export class SafeRooms {
       }
       if (room.meshes.lockerStrip) room.meshes.lockerStrip.material = this.trimLitMat;
     }
-    if (room.panicUsed && room.meshes.panic) room.meshes.panic.material = this.wreckMat;
-
     this._applyDoorVisual(room);
     this._applyVentVisual(room);
     this._rebuildBounds();
@@ -846,7 +846,7 @@ export class SafeRooms {
   //
   // If the cell it picked somehow has no solid wall at all (an open junction), we
   // stand it in the middle of the floor rather than dropping it into the void.
-  _switchPlacement(s) {
+  _keypadPlacement(s) {
     const solid = (t, i, j) => isWall(t, i, j) && !isWindowWall(t, i, j);
     const inRoom = (i, j) => i >= s.ri && i <= s.ri + 1 && j >= s.rj && j <= s.rj + 1;
 
@@ -1096,6 +1096,7 @@ export class SafeRooms {
       if (st.openTimer <= 0) {
         st.state = "closed";
         this.audio.doorShut();
+        this._doorNoise(room); // the SLAM. see below.
         this._rebuildBounds();
       }
     }
@@ -1112,6 +1113,7 @@ export class SafeRooms {
           st.state = "open";
           st.openTimer = OPEN_TIME;
           this.audio.doorOpen();
+          this._doorNoise(room);
           this._rebuildBounds();
         } else if (this._thud <= 0) {
           this._thud = THUD_COOLDOWN;
@@ -1121,6 +1123,23 @@ export class SafeRooms {
     }
 
     this._applyDoorVisual(room, dt);
+  }
+
+  // THE DOOR IS THE LOUDEST THING IN THE GAME.
+  //
+  // Half a tonne of steel dragging on its hinges and slamming into a concrete
+  // frame, in a building where the only other sounds are your own footsteps. It
+  // carries for TWO CHUNKS — 72 metres, further than any sonar ping — and every
+  // single thing inside that radius drops what it's doing and comes to see.
+  //
+  // Note WHERE they come to: the noise is at the DOOR, not at you. They converge on
+  // the doorway, not your position. And the door holds. So what you have bought
+  // yourself is a crowd — pressed up against the one thing you have to walk back
+  // through, hammering on it, achieving nothing, and going nowhere. Opening the
+  // door is safe. Having opened it is the problem.
+  _doorNoise(room) {
+    const d = room.spec.door;
+    this.entities.hearNoise(d.x, d.z, DOOR_NOISE_RADIUS);
   }
 
   _applyDoorVisual(room, dt = 0) {
@@ -1271,8 +1290,11 @@ export class SafeRooms {
       return;
     }
 
-    if (near(room.switchPos) && !room.switchPulled) {
-      this.prompt = { text: `[E] PULL SWITCH ${s.serial}`, kind: "switch" };
+    // The keypad. It does NOT show you the code — that's the whole point.
+    if (near(room.keypadPos)) {
+      this.prompt = room.switchPulled
+        ? { text: "KEYPAD · CODE ACCEPTED", kind: "keypadDone" }
+        : { text: "[E] ENTER DOOR CODE", kind: "keypad" };
       return;
     }
     if (near(room.termPos) && !room.task.done) {
@@ -1281,10 +1303,6 @@ export class SafeRooms {
     }
     if (near(room.lockPos) && room.lockerOpen && room.props.some((p) => p.type !== "plank")) {
       this.prompt = { text: "[E] TAKE FROM LOCKER", kind: "locker" };
-      return;
-    }
-    if (near(room.panicPos) && !room.panicUsed) {
-      this.prompt = { text: "[E] EMERGENCY HALON VENT", kind: "panic" };
       return;
     }
     if (canRepair) {
@@ -1302,16 +1320,8 @@ export class SafeRooms {
     if (!room || !this.prompt) return;
 
     switch (this.prompt.kind) {
-      case "switch":
-        room.switchPulled = true;
-        if (room.door.state === "locked") room.door.state = "closed"; // unlocked, still SHUT
-        // The arm drops on its pivot and STAYS down — a pulled switch reads as
-        // pulled from the far end of the corridor, so you never have to walk back
-        // to check whether you already did this one.
-        if (room.meshes.lever) room.meshes.lever.rotation.x = 1.15;
-        this.audio.switchPull();
-        // A switch being thrown is a hard, mechanical CLANG. It carries.
-        this.entities.hearNoise(player.pos.x, player.pos.z, 20);
+      case "keypad":
+        this.openPanel(room, "keypad", player);
         break;
 
       case "vent":
@@ -1326,11 +1336,7 @@ export class SafeRooms {
         break;
 
       case "terminal":
-        this.openTerminal(room, player);
-        break;
-
-      case "panic":
-        this._halon(room, player, world);
+        this.openPanel(room, "terminal", player);
         break;
 
       case "locker":
@@ -1346,26 +1352,12 @@ export class SafeRooms {
     }
   }
 
-  // --- The hail mary --------------------------------------------------------
-  // One per room, ever. A wall of halon, an alarm loud enough to hurt, and every
-  // single thing in the room drops where it stands. You get five seconds and a
-  // head of steam — and you cannot see a metre in front of you either. That's the
-  // trade: you don't escape gracefully, you escape blind.
-  _halon(room, player, world) {
-    room.panicUsed = true;
-    if (room.meshes.panic) room.meshes.panic.material = this.wreckMat;
-    this.entities.blindNear(player.pos.x, player.pos.z, PANIC_RADIUS, PANIC_STUN);
-    this.entities.setSiege(null);
-    this.audio.halon();
-    this.fx.halon(PANIC_STUN);
-  }
-
-  // --- The terminal ---------------------------------------------------------
-  openTerminal(room, player) {
-    this.terminal = { room, typed: "" };
+  // --- The panel (keypad out in the hall, terminal in the room) --------------
+  openPanel(room, kind, player) {
+    this.terminal = { room, kind, typed: "" };
     player.enabled = false;   // you cannot walk
-    player.lookLocked = true; // and you cannot look. the door is behind you.
-    player.touchFwd = 0;
+    player.lookLocked = true; // and you cannot look — not at the corridor behind
+    player.touchFwd = 0;      // you, not at the door, and NOT back at the code
     player.touchStrafe = 0;
   }
 
@@ -1376,16 +1368,46 @@ export class SafeRooms {
     player.lookLocked = false;
   }
 
+  _taskCodes(room) {
+    const n = Number(room.spec.serial.slice(0, 6)); // 10 digits is too big to multiply cleanly
+    const codes = [];
+    for (let k = 0; k < TASK_CODES; k++) codes.push(String(1000 + ((n * (k + 7) * 37) % 9000)));
+    return codes;
+  }
+
   // What the screen currently reads. game.js renders this.
+  //
+  // The KEYPAD deliberately returns no target. It cannot show you the code, and it
+  // cannot show you how many digits you've got right, because the moment it does
+  // either of those things it is remembering the code FOR you and the whole
+  // mechanic evaporates. All it gives back is how many digits it has swallowed.
   terminalView() {
     if (!this.terminal) return null;
     const room = this.terminal.room;
-    const n = Number(room.spec.serial);
-    const codes = [];
-    for (let k = 0; k < TASK_CODES; k++) codes.push(String(1000 + ((n * (k + 7) * 37) % 9000)));
+    const keypad = this.terminal.kind === "keypad";
+
+    if (keypad) {
+      return {
+        kind: "keypad",
+        title: "DOOR CTRL",
+        line: "ENTER 10-DIGIT DOOR CODE",
+        target: "",                       // never shown. that's the point.
+        typed: this.terminal.typed,
+        need: room.spec.serial.length,
+        index: this.terminal.typed.length,
+        total: room.spec.serial.length,
+        breached: false,
+      };
+    }
+
+    const codes = this._taskCodes(room);
     return {
+      kind: "terminal",
+      title: "SYS/RECLAMATION",
+      line: "AUTHORISE SEQUENCE — ENTER CODE",
       target: codes[room.task.index] || "",
       typed: this.terminal.typed,
+      need: 4,
       index: room.task.index,
       total: TASK_CODES,
       // "You are exposed" — the room is no longer sealed, so your typing carries.
@@ -1393,15 +1415,45 @@ export class SafeRooms {
     };
   }
 
-  // A digit typed at the terminal. Returns "ok" | "bad" | "done".
+  // A digit typed at a panel. Returns "ok" | "bad" | "done".
   typeDigit(digit, player, world) {
     if (!this.terminal) return null;
     const room = this.terminal.room;
-    const view = this.terminalView();
     const t = this.terminal;
 
+    // --- The door keypad ----------------------------------------------------
+    if (t.kind === "keypad") {
+      t.typed += digit;
+      const code = room.spec.serial;
+
+      // It does NOT tell you when you go wrong. It takes all ten digits and then
+      // it either opens or it doesn't. Beeping at the digit you fluffed would turn
+      // ten digits of memory into ten independent one-digit guesses.
+      if (t.typed.length < code.length) {
+        this.audio.termKey();
+        return "ok";
+      }
+
+      const right = t.typed === code;
+      t.typed = "";
+      if (!right) {
+        this.audio.termError();
+        return "bad"; // start again. from memory. from the top.
+      }
+
+      room.switchPulled = true; // the door is live
+      if (room.door.state === "locked") room.door.state = "closed"; // unlocked, still SHUT
+      if (room.meshes.keypadLamp) room.meshes.keypadLamp.material = this.trimLitMat;
+      this.audio.termDone();
+      this.closeTerminal(player);
+      this.fx.codeAccepted();
+      return "done";
+    }
+
+    // --- The room's terminal task -------------------------------------------
+    const view = this.terminalView();
     t.typed += digit;
-    // Wrong digit: the whole code resets. Sloppy typing costs you door.
+    // Wrong digit: the whole code resets. Sloppy typing costs you time.
     if (!view.target.startsWith(t.typed)) {
       t.typed = "";
       this.audio.termError();

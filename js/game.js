@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.45.0";
+const VERSION = "v2.46.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -236,7 +236,10 @@ let runMode = false; // toggled with Q
 const ENERGY_MAX = 150;
 const RUN_DRAIN = 7;   // energy per second while running and moving
 const WALK_REGEN = 4;  // energy per second regained while walking (not running)
-const SONAR_COST = 4;  // energy per sonar reveal
+// Energy per sonar reveal. Raised from 4: a full bar used to buy ~37 pings, which
+// is enough that you never had to think about it. At 6 it's ~25, and on a long run
+// the question "can I afford to look?" starts having a real answer.
+const SONAR_COST = 6;
 
 // Crucifix: the panic button, and rare. Brandishing it does three things at once
 // for WARD_TIME seconds: BLINDS every entity in the world (not just the nearest),

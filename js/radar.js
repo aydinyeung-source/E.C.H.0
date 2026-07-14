@@ -3,11 +3,17 @@
 // Bottom-right sonar radar. The outer wireframe ring is always drawn; the
 // interior is solid black until you fire a pulse.
 //
-// On a pulse we snapshot every wall segment and entity inside the pulse radius
-// (in WORLD coordinates) and record when the expanding ring will actually reach
-// each one: revealAt = pulseTime + distance / WAVE_SPEED. Each frame those blips
-// are re-projected into player-relative space (so the radar rotates with you) and
-// faded using the SAME decay as the 3D world: alpha = 1 - age / GLOW_TIME.
+// On a pulse we snapshot every wall segment inside the pulse radius (in WORLD
+// coordinates) and record when the expanding ring will actually reach each one:
+// revealAt = pulseTime + distance / WAVE_SPEED. Each frame those blips are
+// re-projected into player-relative space (so the radar rotates with you) and faded
+// using the SAME decay as the 3D world: alpha = 1 - age / GLOW_TIME.
+//
+// EVERYTHING in range is mapped — walls behind walls, walls round corners, all of
+// it. The dish is a sonar, not a camera; it tells you the SHAPE of where you are.
+// What you can actually see is the reveal ring's job, and the ring does that
+// properly in the 3D world. See ping() for why the old line-of-sight filter had to
+// go.
 // -----------------------------------------------------------------------------
 
 import { GLOW_TIME, WAVE_SPEED } from "./reveal.js";
@@ -31,40 +37,46 @@ export class Radar {
     this.blips = [];
   }
 
-  // Snapshot walls + entities within range of a pulse, but ONLY those in direct
-  // line of sight — the pulse can't see around corners, so neither can the radar.
-  // `now` is in seconds.
+  // Snapshot EVERY wall within range of a pulse. `now` is in seconds.
+  //
+  // No line-of-sight filter. There used to be one — the pulse can't see round
+  // corners, so neither could the dish — and it read as a bug, because it is
+  // indistinguishable from one: you ping, and half the corridors you KNOW are there
+  // simply aren't on the radar. Worse, "in line of sight" and "close enough" are
+  // different sets, so the dish would drop a wall you were looking straight past
+  // while keeping the one behind it. A radar with holes in it is worse than no
+  // radar: you stop trusting it, and then it isn't doing anything.
+  //
+  // It's a SONAR dish, not a camera. It maps what's around you. What you can SEE is
+  // the reveal ring's job, and the ring already does that properly.
+  //
+  // It also now reads world.extraBounds, so safe-room doors and vents actually show
+  // up. They were invisible on the dish before, because they aren't part of any
+  // chunk's baked geometry — they're runtime bounds the safe rooms own.
   ping(origin, now, world, entityList) {
-    for (const chunk of world.chunks.values()) {
-      for (const w of chunk.bounds) {
-        const cx = (w.minX + w.maxX) / 2;
-        const cz = (w.minZ + w.maxZ) / 2;
-        const d = Math.hypot(cx - origin.x, cz - origin.z);
-        if (d > RANGE) continue;
+    const take = (w) => {
+      const cx = (w.minX + w.maxX) / 2;
+      const cz = (w.minZ + w.maxZ) / 2;
+      const d = Math.hypot(cx - origin.x, cz - origin.z);
+      if (d > RANGE) return;
 
-        // Stop the ray just short of the wall, or it would "hit" itself.
-        if (d > 0.6) {
-          const ux = (cx - origin.x) / d;
-          const uz = (cz - origin.z) / d;
-          const stop = d - 0.4;
-          if (world.segmentBlocked(origin.x, origin.z, origin.x + ux * stop, origin.z + uz * stop)) {
-            continue; // hidden behind another wall
-          }
-        }
-
-        const revealAt = now + d / WAVE_SPEED;
-        // A broken window (entityOnly) is drawn in a different colour — it's a
-        // hole you can dive through and they can't follow, so it's worth being
-        // able to spot one on the dish.
-        const win = !!w.entityOnly;
-        // Represent the wall box as a line along its long axis.
-        if (w.maxX - w.minX >= w.maxZ - w.minZ) {
-          this.blips.push({ win, x1: w.minX, z1: cz, x2: w.maxX, z2: cz, revealAt });
-        } else {
-          this.blips.push({ win, x1: cx, z1: w.minZ, x2: cx, z2: w.maxZ, revealAt });
-        }
+      const revealAt = now + d / WAVE_SPEED;
+      // A hole you can get through and they can't — a smashed window, an open vent,
+      // an open doorway — comes back a different colour. Spotting one of those on
+      // the dish is worth a run.
+      const win = !!(w.entityOnly || w.window);
+      // Represent the wall box as a line along its long axis.
+      if (w.maxX - w.minX >= w.maxZ - w.minZ) {
+        this.blips.push({ win, x1: w.minX, z1: cz, x2: w.maxX, z2: cz, revealAt });
+      } else {
+        this.blips.push({ win, x1: cx, z1: w.minZ, x2: cx, z2: w.maxZ, revealAt });
       }
+    };
+
+    for (const chunk of world.chunks.values()) {
+      for (const w of chunk.bounds) take(w);
     }
+    for (const w of world.extraBounds) take(w);
   }
 
   // World point -> radar pixel, relative to the player's position and heading

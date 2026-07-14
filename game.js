@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.34.0";
+const VERSION = "v2.34.1";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -998,11 +998,10 @@ function updateSafeRoomHud() {
   usePrompt.textContent = text;
   usePrompt.classList.toggle("hidden", !text);
 
-  // Tell the mobile USE button what it's about to do. Without this you'd have to
-  // remember the rule; with it, the button just changes colour when it's going to
-  // act on the room instead of your inventory.
+  // The button always reads USE — it's one button and it does the obvious thing.
+  // It only picks up a cyan tint when it's about to act on the room rather than
+  // your inventory, which is a hint, not a relabelling.
   mcEat.classList.toggle("acting", !!saferooms.prompt);
-  mcEat.textContent = saferooms.prompt ? "ACT" : "USE";
 
   renderTerminal();
 }

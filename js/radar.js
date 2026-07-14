@@ -18,10 +18,20 @@
 
 import { GLOW_TIME, WAVE_SPEED } from "./reveal.js";
 
-const RANGE = 42; // world units mapped onto the radar's radius
-// Bodies are tracked through walls, but only inside this radius — the dish is a
-// short-range proximity sense, not a map of the whole level.
-const ENTITY_RANGE = 32;
+// How far the dish reaches, in world units, mapped onto its radius.
+//
+// Pulled in from 42 to 26. At 42 it mapped nearly four cells in every direction —
+// which is most of a chunk, and enough that you could route the whole run off the
+// dish and barely look at the world. It's a proximity sense, not a minimap: it
+// should tell you the shape of the junction you're standing in, not the layout of
+// the district.
+//
+// Smaller also makes it READ better: the same 180px dish now spends its pixels on
+// four cells instead of seven, so the corridors are actually legible at a glance
+// rather than a smear of green lines.
+const RANGE = 26;
+// Bodies are tracked through walls, but only inside this radius.
+const ENTITY_RANGE = 20;
 
 export class Radar {
   constructor(canvas) {

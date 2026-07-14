@@ -19,10 +19,14 @@ import { RUN_SPEED as PLAYER_RUN_SPEED } from "./player.js";
 //      there, they find nothing, lose interest, and go back to wandering. Noise
 //      marks a SPOT, not you.
 //
-//   2. SIGHT -> HUNT. They only actually come for you once they SEE you: a clear
-//      sightline within SIGHT_RANGE. That's when they lock onto your real
-//      position and give chase. Break the sightline and they keep coming for
-//      LOS_MEMORY seconds, then lose you.
+//   2. SIGHT -> HUNT. They only actually come for you once they SEE you. That's
+//      when they lock onto your real position and give chase; break the sightline
+//      and they keep coming for LOS_MEMORY seconds, then lose you.
+//
+//      There are two ways to be seen, and the second is the one that will kill
+//      you: they can pick you out of the dark unaided within SIGHT_RANGE — or you
+//      can LOOK AT ONE THAT IS LOOKING BACK, at any distance whatsoever. See the
+//      BEING SEEN block below; it is the most important rule in the file.
 //
 // THE SONAR BREAKS BOTH RULES IN YOUR FACE, and that is the point of it:
 //
@@ -76,15 +80,39 @@ const BASE_SPEED = 2.2;             // "1x" — a hunter stalking you at close r
 // comfortably slower than your 7.6 sprint.)
 const CHASE_SPEED = Math.min(BASE_SPEED * 2.5, PLAYER_RUN_SPEED * 0.85);
 
-// How far they can actually see you. Deliberately SHORT — and now shorter still,
-// because the fog was pushed back to ~60m and the player's view got much longer.
+// --- BEING SEEN --------------------------------------------------------------
 //
-// That gap IS the game. You can see the length of a corridor; they can see about
-// a cell and a half. So you will nearly always spot one before it spots you, and
-// what you do with that head start — freeze, back off, go round, dive through a
-// window — is the whole of the stealth. Let their sight grow with your view and
-// you'd just be swapping information for information and gaining nothing.
-const SIGHT_RANGE = 9;
+// There are TWO ways one of these gets you, and the difference between them is the
+// whole stealth game now.
+//
+// 1. IT WALKS INTO YOU. SIGHT_RANGE (2.5 cells) is what it can pick out of the
+//    pitch dark by itself — behind you, round a corner, while it's already hunting.
+//    Short, because it's black down here and they have no light.
+//
+// 2. YOU LOOK AT IT AND IT LOOKS BACK. If it is ON YOUR SCREEN and it is FACING
+//    YOU, it has you — at ANY distance. No range limit at all.
+//
+// The second one is the interesting one, and it is deliberately mutual. Something
+// shambling across a junction with its back to you, forty metres off, is safe to
+// watch. The same thing turning its head towards you while you're staring straight
+// at it is not — you have locked eyes with it down a long corridor, and it is now
+// coming, and no amount of distance saves you.
+//
+// The consequence you'll feel in play: LOOK AWAY. Watching a distant thing is how
+// you get caught by it. Turning your back on it is safe until it closes to 15m —
+// which is a genuinely horrible choice to have to make, and that's the point.
+const SIGHT_RANGE = 15; // 2.5 cells
+
+// The cones. Both are half-angles, stored pre-cosined for a straight dot-product
+// test.
+//   SCREEN — roughly the camera's horizontal field of view, so "on your screen"
+//            means what it says. Wider than the 75deg vertical FOV suggests,
+//            because at 16:9 the horizontal spread is about 100deg.
+//   GAZE   — how far off its own nose something counts as "looking at you". Kept
+//            tighter than the screen cone: it has to be more or less facing you,
+//            not merely have you somewhere in the corner of its eye.
+const SCREEN_COS = Math.cos(0.87); // ~50deg either side of where you're pointed
+const GAZE_COS = Math.cos(0.70);   // ~40deg either side of where it's pointed
 
 // THE PING IS NOW GENUINELY DANGEROUS.
 //
@@ -545,7 +573,9 @@ export class EntitySystem {
   }
 
   // Returns true if one caught the player.
-  update(dt, playerPos, distance, world) {
+  // `playerYaw` is needed for the mutual-gaze rule: we have to know where the
+  // player is LOOKING, not just where they are standing.
+  update(dt, playerPos, playerYaw, distance, world) {
     // Keep the world populated — but SLOWLY. New ones appear far away and out of
     // sight, and only one can turn up per PLACE_COOLDOWN, so the maze fills in
     // over minutes rather than seconds. If _place can't find a hidden spot it
@@ -657,16 +687,41 @@ export class EntitySystem {
       }
 
       // --- Can it SEE you? That is the only thing that starts a hunt. ---
-      // Normally bounded by SIGHT_RANGE — it's pitch black down here and they can't
-      // pick you out from across the level.
       //
-      // But for the three seconds after a ping, that bound is GONE. The sightline
-      // still has to be clear (a wall is a wall), but distance stops protecting you:
-      // anything with a straight line to you, anywhere, has you. A wall between you
-      // and them is now the only thing that does.
-      const range = this.pingSight > 0 ? Infinity : SIGHT_RANGE;
-      const canSee =
-        dPlayer < range && !world.segmentBlocked(e.x, e.z, playerPos.x, playerPos.z);
+      // A clear sightline is required for ALL of it — a wall is always a wall — and
+      // then any ONE of these three is enough:
+      //
+      //   a) it's within SIGHT_RANGE. It found you in the dark, unaided.
+      //   b) MUTUAL GAZE: it is on your screen AND it is facing you. Any distance.
+      //      You locked eyes with it, and that's that.
+      //   c) the ping is still lit. For PING_SIGHT seconds after a sonar, distance
+      //      and facing both stop mattering entirely — you shouted.
+      const clearLine = !world.segmentBlocked(e.x, e.z, playerPos.x, playerPos.z);
+
+      let canSee = false;
+      if (clearLine) {
+        if (this.pingSight > 0 || dPlayer < SIGHT_RANGE) {
+          canSee = true;
+        } else if (dPlayer > 0.001) {
+          // Unit vector from the entity to you.
+          const tx = dxp / dPlayer;
+          const tz = dzp / dPlayer;
+
+          // Is it on your screen? Your forward is -Z at yaw 0.
+          const pfx = -Math.sin(playerYaw);
+          const pfz = -Math.cos(playerYaw);
+          const onScreen = pfx * -tx + pfz * -tz > SCREEN_COS;
+
+          // Is it looking back? Its forward is wherever its body is turned — which
+          // is its heading while it wanders, so one ambling ACROSS your view with
+          // its back to you genuinely cannot see you, however hard you stare.
+          const efx = Math.sin(e.group.rotation.y);
+          const efz = Math.cos(e.group.rotation.y);
+          const lookingAtYou = efx * tx + efz * tz > GAZE_COS;
+
+          canSee = onScreen && lookingAtYou;
+        }
+      }
       e.canSee = canSee; // the radar shows a live red dot for anything watching you
 
       const enraged = e.enrageTimer > 0;

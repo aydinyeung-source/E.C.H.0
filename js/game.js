@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.53.0";
+const VERSION = "v2.54.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -1254,7 +1254,7 @@ function loop(now) {
     }
 
     updateTorch(dt);
-    if (entities.update(dt, player.pos, run.maxDistance, world)) die();
+    if (entities.update(dt, player.pos, player.yaw, run.maxDistance, world)) die();
 
     // Safe rooms: streaming, the door, the siege, the props, the prompts. Runs
     // AFTER the entities so it sees this frame's blows against the door.

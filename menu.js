@@ -17,8 +17,24 @@ import {
 
 const el = (id) => document.getElementById(id);
 
+// PLAYTEST IMMUNITY.
+// One account — the developer's — can arm an immunity toggle before a run. It is
+// a DEVELOPMENT tool, so it comes with a hard condition: an immune run never
+// touches the leaderboard. You cannot play god and post a score.
+//
+// This gate is client-side, which is worth being honest about: anyone determined
+// enough could flip the flag in devtools. That's fine, because the flag's only
+// power is to SUPPRESS a score submit, never to inflate one. The worst a forger
+// can do to the leaderboard with it is keep themselves off it.
+const PLAYTEST_USER_ID = "98545950-20b3-4b89-ad72-27cfd1059f8f";
+
 export const Menu = {
-  user: null, // current auth user (or null), so the game can gate score submits
+  user: null,      // current auth user (or null), so the game can gate score submits
+  playtest: false, // is immunity ARMED for the next run?
+
+  get isPlaytester() {
+    return this.user?.id === PLAYTEST_USER_ID;
+  },
 
   async init() {
     this.tabLogin = el("tabLogin");
@@ -33,6 +49,8 @@ export const Menu = {
     this.userLabel = el("authUserLabel");
     this.logout = el("logoutButton");
     this.list = el("leaderboardList");
+    this.playtestRow = el("playtestRow");
+    this.playtestToggle = el("playtestToggle");
 
     this.mode = "login";
     this._setMode("login");
@@ -41,6 +59,12 @@ export const Menu = {
     this.tabSignup.addEventListener("click", () => this._setMode("signup"));
     this.submit.addEventListener("click", () => this._onSubmit());
     this.logout.addEventListener("click", () => this._onLogout());
+    this.playtestToggle.addEventListener("click", () => {
+      if (!this.isPlaytester) return;
+      this.playtest = !this.playtest;
+      this._renderPlaytest();
+    });
+    this._renderPlaytest();
 
     if (!isSupabaseConfigured()) {
       this.msg.textContent = "Accounts offline — add Supabase keys to config.js.";
@@ -125,6 +149,19 @@ export const Menu = {
     if (loggedIn) {
       this.userLabel.textContent = (await getUsername()) || user.email || "player";
     }
+    // Log out (or log in as anyone else) and immunity is gone AND disarmed — it
+    // must never survive an account change and quietly suppress someone's score.
+    if (!this.isPlaytester) this.playtest = false;
+    this._renderPlaytest();
+  },
+
+  _renderPlaytest() {
+    if (!this.playtestRow) return;
+    this.playtestRow.classList.toggle("hidden", !this.isPlaytester);
+    this.playtestToggle.classList.toggle("active", this.playtest);
+    this.playtestToggle.textContent = this.playtest
+      ? "🛡 Playtest immunity: ON"
+      : "🛡 Playtest immunity: OFF";
   },
 
   // Render the daily top 10 for the given date.

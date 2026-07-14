@@ -17,6 +17,10 @@
     <div class="crosshair" aria-hidden="true"></div>
     <div class="distance-tag" id="distanceTag"></div>
 
+    <!-- Always visible while an immune run is in progress, so a playtest can
+         never be mistaken for a real one. -->
+    <div class="playtest-tag hidden" id="playtestTag">🛡 PLAYTEST · IMMUNE · NO LEADERBOARD</div>
+
     <!-- Hotbar + energy meter (shown while playing). Slots are built in game.js. -->
     <div class="hotbar hidden" id="hotbar"></div>
     <div class="hud-energy hidden" id="energyBar">
@@ -157,6 +161,13 @@
         <div class="overlay-actions">
           <button id="startButton" type="button">Enter</button>
           <button id="dailyButton" class="secondary" type="button">Daily Challenge</button>
+        </div>
+
+        <!-- Dev-only: shown solely to the playtest account (see menu.js). An
+             immune run is never submitted to the leaderboard. -->
+        <div class="playtest-row hidden" id="playtestRow">
+          <button id="playtestToggle" class="secondary playtest" type="button">🛡 Playtest immunity: OFF</button>
+          <p class="sub">Nothing can kill you. The run will not be submitted to the leaderboard.</p>
         </div>
 
         <div class="leaderboard">

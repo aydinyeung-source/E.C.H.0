@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.28.0";
+const VERSION = "v2.29.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -54,6 +54,7 @@ const torchFill = document.getElementById("torchFill");
 const settingsToggle = document.getElementById("settingsToggle");
 const settingsBody = document.getElementById("settingsBody");
 const mcAct = document.getElementById("mcAct");
+const playtestTag = document.getElementById("playtestTag");
 const doorBar = document.getElementById("doorBar");
 const doorFill = document.getElementById("doorFill");
 const usePrompt = document.getElementById("usePrompt");
@@ -207,6 +208,7 @@ function setPlaying(v) {
     halonOverlay.classList.add("hidden");
   }
   player.enabled = v;
+  playtestTag.classList.toggle("hidden", !(v && run.playtest));
   energyBar.classList.toggle("hidden", !v);
   hotbarEl.classList.toggle("hidden", !v);
   torchBar.classList.toggle("hidden", !v);
@@ -512,13 +514,17 @@ function todayUTC() {
 // --- Run control ------------------------------------------------------------
 // A "run" tracks the active seed, whether it's the competitive daily challenge,
 // and the furthest distance reached from spawn (the leaderboard metric).
-const run = { seed: 0, date: todayUTC(), isDaily: false, maxDistance: 0 };
+const run = { seed: 0, date: todayUTC(), isDaily: false, maxDistance: 0, playtest: false };
 
 function startRun(rawSeedText, label, isDaily) {
   run.seed = parseSeed(rawSeedText);
   run.isDaily = isDaily;
   run.date = todayUTC();
   run.maxDistance = 0;
+  // Immunity is decided ONCE, here, and frozen for the whole run — it can't be
+  // switched off partway through to launder a run into a real score.
+  run.playtest = Menu.isPlaytester && Menu.playtest;
+  playtestTag.classList.toggle("hidden", !run.playtest);
   dead = false;
   heartTimer = 0;
   energy = ENERGY_MAX;
@@ -587,6 +593,10 @@ function showGameOver() {
 // An entity reached the player: jumpscare, then end the run.
 function die() {
   if (dead) return;
+  // Playtest immunity: they still hunt you, still catch you, still breathe down
+  // your neck — you simply do not die. Everything else about the run is real, so
+  // what you're testing is the real game.
+  if (run.playtest) return;
   dead = true;
   jumpscareOverlay.classList.remove("hidden");
   audio.jumpscare();
@@ -641,6 +651,7 @@ document.addEventListener("pointerlockchange", () => {
 });
 
 function submitScoreIfDaily() {
+  if (run.playtest) return; // an immune run is not a score. no exceptions.
   if (run.isDaily && run.maxDistance > 0) {
     submitDistance({ seed: run.seed, date: run.date, distance: run.maxDistance })
       .then(() => Menu.refreshLeaderboard(run.date));

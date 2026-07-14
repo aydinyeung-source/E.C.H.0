@@ -929,6 +929,52 @@ button.secondary:hover {
   color: rgba(125, 255, 190, 0.5);
 }
 
+/* ---------------------------------------------------------------------------
+   PLAYTEST IMMUNITY (dev account only)
+   Deliberately loud and amber — nothing else in the game is this colour. An
+   immune run must never be mistakable for a real one, either on the home screen
+   or mid-run.
+   --------------------------------------------------------------------------- */
+.playtest-row {
+  margin-top: 14px;
+  text-align: center;
+}
+
+.playtest-row .sub {
+  margin-top: 6px;
+  font-size: 0.6rem;
+  color: rgba(255, 200, 90, 0.6);
+}
+
+button.playtest {
+  border-color: rgba(255, 190, 60, 0.5);
+  color: #ffd67a;
+}
+
+button.playtest.active {
+  background: rgba(255, 190, 60, 0.22);
+  border-color: rgba(255, 190, 60, 0.9);
+  color: #fff0c4;
+  box-shadow: 0 0 14px rgba(255, 190, 60, 0.35);
+}
+
+.playtest-tag {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  padding: 4px 12px;
+  border: 1px solid rgba(255, 190, 60, 0.55);
+  border-radius: 4px;
+  background: rgba(30, 20, 0, 0.7);
+  color: #ffd67a;
+  font-size: 0.58rem;
+  letter-spacing: 0.2em;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* A wooden plank, in the hotbar. */
 .slot-icon.plank {
   border-radius: 2px;

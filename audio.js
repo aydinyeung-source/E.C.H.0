@@ -592,6 +592,16 @@ export class AudioSystem {
     }
   }
 
+  // It took you, and it died doing it: a wet, collapsing shriek that falls away to
+  // nothing. Played under the jumpscare, so it reads as part of the same horrible
+  // event rather than a separate sound effect.
+  entityDeath() {
+    if (!this.ctx) return;
+    this._tone(700, 40, 1.3, "sawtooth", 0.3);
+    this._tone(430, 25, 1.1, "square", 0.14, 0.05);
+    this._noiseBurst(0.8, "bandpass", 900, 1.4, 0.35, 0.02);
+  }
+
   // Loud, harsh stinger for the jumpscare.
   jumpscare() {
     if (!this.ctx) return;

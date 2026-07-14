@@ -37,7 +37,7 @@
 //   standing between you and that being the end of the run.
 // -----------------------------------------------------------------------------
 
-import { CELL, WALL_H, chunkRoom, isWall } from "./world.js";
+import { CELL, WALL_H, chunkRoom, isWall, isWindowWall } from "./world.js";
 import { installReveal } from "./reveal.js";
 
 const LOAD_RADIUS = 2;          // chunks around the player whose rooms get built
@@ -71,6 +71,206 @@ const REWARDS = ["meat", "torch", "crucifix"];
 // unmistakable against the green sonar and the yellow walls — if you see cyan,
 // something in that direction can be used.
 const ECHO_CYAN = 0x27e0ff;
+
+// --- Prop textures -----------------------------------------------------------
+// All drawn on <canvas> at runtime, like every other surface in the game — there
+// are still no image files anywhere in this project.
+
+// The door: a riveted steel blast panel with hazard striping along the bottom and
+// a lot of history scratched into it.
+function makeDoorTexture() {
+  const c = document.createElement("canvas");
+  c.width = 256;
+  c.height = 256;
+  const g = c.getContext("2d");
+
+  // Brushed steel: a vertical gradient with fine grain scratched across it.
+  const base = g.createLinearGradient(0, 0, 0, 256);
+  base.addColorStop(0, "#8f99a4");
+  base.addColorStop(0.5, "#737d88");
+  base.addColorStop(1, "#5c656f");
+  g.fillStyle = base;
+  g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 1400; i++) {
+    const y = Math.random() * 256;
+    g.strokeStyle = `rgba(255,255,255,${Math.random() * 0.05})`;
+    g.beginPath();
+    g.moveTo(Math.random() * 256, y);
+    g.lineTo(Math.random() * 256, y + (Math.random() - 0.5) * 2);
+    g.stroke();
+  }
+
+  // Recessed panel, drawn as a highlight edge over a shadow edge.
+  g.strokeStyle = "rgba(0,0,0,0.45)";
+  g.lineWidth = 5;
+  g.strokeRect(24, 24, 208, 176);
+  g.strokeStyle = "rgba(220,235,245,0.16)";
+  g.lineWidth = 2;
+  g.strokeRect(28, 28, 200, 168);
+
+  // Cross-braces.
+  g.fillStyle = "rgba(0,0,0,0.2)";
+  g.fillRect(24, 100, 208, 10);
+  g.fillStyle = "rgba(220,235,245,0.12)";
+  g.fillRect(24, 100, 208, 3);
+
+  // Rivets around the frame.
+  const rivet = (x, y) => {
+    g.fillStyle = "rgba(0,0,0,0.45)";
+    g.beginPath();
+    g.arc(x, y + 1, 4, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = "#a6b0ba";
+    g.beginPath();
+    g.arc(x, y, 3.4, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = "rgba(255,255,255,0.5)";
+    g.beginPath();
+    g.arc(x - 1, y - 1, 1.2, 0, Math.PI * 2);
+    g.fill();
+  };
+  for (let x = 12; x <= 244; x += 29) {
+    rivet(x, 12);
+    rivet(x, 212);
+  }
+  for (let y = 12; y <= 212; y += 25) {
+    rivet(12, y);
+    rivet(244, y);
+  }
+
+  // Hazard stripes across the foot of the door.
+  g.save();
+  g.beginPath();
+  g.rect(0, 226, 256, 30);
+  g.clip();
+  g.fillStyle = "#d8b400";
+  g.fillRect(0, 226, 256, 30);
+  g.fillStyle = "#1b1b1b";
+  for (let x = -30; x < 300; x += 30) {
+    g.beginPath();
+    g.moveTo(x, 256);
+    g.lineTo(x + 15, 226);
+    g.lineTo(x + 30, 226);
+    g.lineTo(x + 15, 256);
+    g.closePath();
+    g.fill();
+  }
+  g.restore();
+
+  // Rust and scoring — things have been at this door before you.
+  for (let i = 0; i < 26; i++) {
+    const rx = Math.random() * 256;
+    const ry = Math.random() * 220;
+    const rr = 3 + Math.random() * 16;
+    const grd = g.createRadialGradient(rx, ry, 0, rx, ry, rr);
+    grd.addColorStop(0, "rgba(96,52,20,0.4)");
+    grd.addColorStop(1, "rgba(96,52,20,0)");
+    g.fillStyle = grd;
+    g.fillRect(rx - rr, ry - rr, rr * 2, rr * 2);
+  }
+  for (let i = 0; i < 20; i++) {
+    g.strokeStyle = `rgba(230,240,250,${0.05 + Math.random() * 0.12})`;
+    g.lineWidth = 1 + Math.random();
+    const x = Math.random() * 256;
+    const y = 40 + Math.random() * 150;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + (Math.random() - 0.5) * 40, y + (Math.random() - 0.5) * 26);
+    g.stroke();
+  }
+
+  return new THREE.CanvasTexture(c);
+}
+
+// A plank: rough-sawn timber, grain, knots and split ends.
+function makePlankTexture() {
+  const c = document.createElement("canvas");
+  c.width = 256;
+  c.height = 64;
+  const g = c.getContext("2d");
+
+  g.fillStyle = "#9a7440";
+  g.fillRect(0, 0, 256, 64);
+
+  // Grain: long wavering lines down the length of the board.
+  for (let i = 0; i < 70; i++) {
+    const y = Math.random() * 64;
+    g.strokeStyle = `rgba(${70 + Math.random() * 40},${45 + Math.random() * 30},20,${0.1 + Math.random() * 0.3})`;
+    g.lineWidth = 0.5 + Math.random() * 1.6;
+    g.beginPath();
+    g.moveTo(0, y);
+    for (let x = 0; x <= 256; x += 16) {
+      g.lineTo(x, y + Math.sin(x * 0.06 + i) * 1.8);
+    }
+    g.stroke();
+  }
+  // Knots.
+  for (let i = 0; i < 3; i++) {
+    const kx = 30 + Math.random() * 196;
+    const ky = 12 + Math.random() * 40;
+    for (let r = 9; r > 0; r -= 1.6) {
+      g.strokeStyle = `rgba(60,38,16,${0.15 + (9 - r) * 0.06})`;
+      g.lineWidth = 1.2;
+      g.beginPath();
+      g.ellipse(kx, ky, r, r * 0.62, 0.4, 0, Math.PI * 2);
+      g.stroke();
+    }
+  }
+  // Darkened, splintered ends.
+  const capL = g.createLinearGradient(0, 0, 14, 0);
+  capL.addColorStop(0, "rgba(40,26,10,0.55)");
+  capL.addColorStop(1, "rgba(40,26,10,0)");
+  g.fillStyle = capL;
+  g.fillRect(0, 0, 14, 64);
+  const capR = g.createLinearGradient(256, 0, 242, 0);
+  capR.addColorStop(0, "rgba(40,26,10,0.55)");
+  capR.addColorStop(1, "rgba(40,26,10,0)");
+  g.fillStyle = capR;
+  g.fillRect(242, 0, 14, 64);
+
+  return new THREE.CanvasTexture(c);
+}
+
+// The KeySwitch housing: a fire-alarm box. Red, weathered, and it says PULL DOWN,
+// because in the dark you will want to be very sure before you commit to it.
+function makeSwitchTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d");
+
+  const base = g.createLinearGradient(0, 0, 0, 128);
+  base.addColorStop(0, "#d4463a");
+  base.addColorStop(1, "#96261d");
+  g.fillStyle = base;
+  g.fillRect(0, 0, 128, 128);
+
+  g.strokeStyle = "rgba(0,0,0,0.4)";
+  g.lineWidth = 4;
+  g.strokeRect(6, 6, 116, 116);
+  g.strokeStyle = "rgba(255,220,210,0.25)";
+  g.lineWidth = 1.5;
+  g.strokeRect(9, 9, 110, 110);
+
+  g.fillStyle = "rgba(255,235,230,0.92)";
+  g.font = "bold 15px 'Courier New', monospace";
+  g.textAlign = "center";
+  g.fillText("PULL", 64, 30);
+  g.font = "bold 10px 'Courier New', monospace";
+  g.fillText("DOWN", 64, 43);
+
+  // The slot the lever travels in.
+  g.fillStyle = "rgba(0,0,0,0.55)";
+  g.fillRect(52, 54, 24, 56);
+  g.fillStyle = "rgba(255,255,255,0.12)";
+  g.fillRect(52, 54, 24, 3);
+
+  // Grime and chipped paint.
+  for (let i = 0; i < 500; i++) {
+    g.fillStyle = `rgba(0,0,0,${Math.random() * 0.14})`;
+    g.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
+  }
+  return new THREE.CanvasTexture(c);
+}
 
 // A canvas texture of the 4-digit serial, self-lit so it can actually be READ in
 // the pitch dark. This is the one concession: without it the whole mechanic would
@@ -119,15 +319,23 @@ export class SafeRooms {
     // tint for exactly this. Over-bright on purpose (>1) so the ring hitting them
     // reads as a hard flash rather than a tint.
     const cyanFlash = new THREE.Color(ECHO_CYAN).multiplyScalar(2.6);
-    this.doorMat = new THREE.MeshPhongMaterial({ color: 0x8e99a6, shininess: 10 });
+    this.doorMat = new THREE.MeshPhongMaterial({
+      color: 0xffffff, shininess: 42, specular: 0x556070, map: makeDoorTexture(),
+    });
     installReveal(this.doorMat, cyanFlash);
     this.wreckMat = new THREE.MeshPhongMaterial({ color: 0x3a3f46, shininess: 0 });
     installReveal(this.wreckMat);
-    this.switchMat = new THREE.MeshPhongMaterial({ color: 0xc4342c, shininess: 8 });
+    this.switchMat = new THREE.MeshPhongMaterial({
+      color: 0xffffff, shininess: 18, map: makeSwitchTexture(),
+    });
     installReveal(this.switchMat, cyanFlash);
-    this.metalMat = new THREE.MeshPhongMaterial({ color: 0x767f8a, shininess: 6 });
+    this.metalMat = new THREE.MeshPhongMaterial({ color: 0x767f8a, shininess: 30, specular: 0x445062 });
     installReveal(this.metalMat);
-    this.woodMat = new THREE.MeshPhongMaterial({ color: 0x8a6a3c, shininess: 0 });
+    this.darkMetalMat = new THREE.MeshPhongMaterial({ color: 0x3d444c, shininess: 24 });
+    installReveal(this.darkMetalMat);
+    this.woodMat = new THREE.MeshPhongMaterial({
+      color: 0xffffff, shininess: 2, map: makePlankTexture(),
+    });
     installReveal(this.woodMat);
 
     // Self-lit bits. These IGNORE the darkness — a screen, a glowing button and a
@@ -137,6 +345,14 @@ export class SafeRooms {
     this.panicMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
     this.plankGlowMat = new THREE.MeshBasicMaterial({ color: 0xe8b464 });
     this.leverMat = new THREE.MeshBasicMaterial({ color: 0xffe36b });
+    // Self-lit trim. The locker used to be an unlit box in a pitch-black room —
+    // which meant it was, for all practical purposes, INVISIBLE until a ping hit
+    // it. A cabinet you cannot find is not a reward. Now it wears a cyan status
+    // strip you can see from the doorway.
+    this.trimMat = new THREE.MeshBasicMaterial({ color: 0x27e0ff });
+    this.trimLitMat = new THREE.MeshBasicMaterial({ color: 0x8affd0 }); // once it's open
+    // The room's emergency lamp: the only light source in there, and it is red.
+    this.lampMat = new THREE.MeshBasicMaterial({ color: 0xff3a2a });
     // Whatever the locker coughs up, in the same colours the item has everywhere
     // else — you should recognise it on the floor without reading a label.
     this.rewardMats = {
@@ -147,6 +363,25 @@ export class SafeRooms {
 
     this.boxGeo = new THREE.BoxGeometry(1, 1, 1);
     this.plateGeo = new THREE.PlaneGeometry(0.7, 0.35);
+    this.rodGeo = new THREE.CylinderGeometry(1, 1, 1, 10);
+    this.knobGeo = new THREE.SphereGeometry(1, 12, 10);
+  }
+
+  // Little helpers so the prop builders below read as descriptions of objects
+  // rather than walls of scale/position arithmetic.
+  _box(mat, sx, sy, sz, x, y, z, yaw = 0) {
+    const m = new THREE.Mesh(this.boxGeo, mat);
+    m.scale.set(sx, sy, sz);
+    m.position.set(x, y, z);
+    m.rotation.y = yaw;
+    return m;
+  }
+
+  _rod(mat, radius, length, x, y, z) {
+    const m = new THREE.Mesh(this.rodGeo, mat);
+    m.scale.set(radius, length, radius);
+    m.position.set(x, y, z);
+    return m;
   }
 
   reset() {
@@ -201,13 +436,86 @@ export class SafeRooms {
     room.meshes = {};
 
     // --- The door ----------------------------------------------------------
+    // A GROUP, not a single box: the slab, a steel frame around the opening, two
+    // hinges and a push-bar. The whole group moves as one when it swings, and the
+    // frame stays put because the frame is part of the wall, not the door.
     const d = s.door;
-    const door = new THREE.Mesh(this.boxGeo, this.doorMat);
     const width = CELL * 0.94;
-    door.scale.set(d.horiz ? width : DOOR_T, DOOR_H, d.horiz ? DOOR_T : width);
-    door.position.set(d.x, DOOR_H / 2, d.z);
-    g.add(door);
+    const door = new THREE.Group();
+
+    const slab = this._box(this.doorMat, d.horiz ? width : DOOR_T, DOOR_H, d.horiz ? DOOR_T : width, 0, DOOR_H / 2, 0);
+    door.add(slab);
+    room.meshes.slab = slab;
+
+    // Push-bar across the middle, on both faces — this is the thing you shoulder.
+    for (const sign of [1, -1]) {
+      const off = DOOR_T / 2 + 0.05;
+      door.add(
+        this._box(
+          this.darkMetalMat,
+          d.horiz ? width * 0.62 : 0.1,
+          0.09,
+          d.horiz ? 0.1 : width * 0.62,
+          d.horiz ? 0 : sign * off,
+          1.15,
+          d.horiz ? sign * off : 0
+        )
+      );
+    }
+    // Hinges down one edge.
+    const hingeAlong = d.horiz ? [1, 0] : [0, 1];
+    for (const h of [0.5, 1.35, 2.2]) {
+      door.add(
+        this._rod(
+          this.darkMetalMat,
+          0.07,
+          0.22,
+          hingeAlong[0] * (width / 2 - 0.05),
+          h,
+          hingeAlong[1] * (width / 2 - 0.05)
+        )
+      );
+    }
+    // Hang it on a PIVOT at the hinge edge, so it swings like a door instead of
+    // sliding sideways into the wall like a pocket door. The pivot sits on the
+    // hinge line; the door group is offset back inside it so the slab lands square
+    // in the opening at rest.
+    const pivot = new THREE.Group();
+    pivot.position.set(d.x + hingeAlong[0] * (width / 2), 0, d.z + hingeAlong[1] * (width / 2));
+    door.position.set(-hingeAlong[0] * (width / 2), 0, -hingeAlong[1] * (width / 2));
+    pivot.add(door);
+    g.add(pivot);
     room.meshes.door = door;
+    room.meshes.pivot = pivot;
+
+    // The frame: a steel surround bolted into the concrete. It does NOT move with
+    // the door, so when the door swings open you're left looking through a proper
+    // lined opening rather than a hole in a wall.
+    const frameT = 0.16;
+    for (const side of [-1, 1]) {
+      g.add(
+        this._box(
+          this.darkMetalMat,
+          d.horiz ? frameT : DOOR_T + 0.08,
+          DOOR_H + 0.12,
+          d.horiz ? DOOR_T + 0.08 : frameT,
+          d.x + (d.horiz ? side * (width / 2 + frameT / 2) : 0),
+          (DOOR_H + 0.12) / 2,
+          d.z + (d.horiz ? 0 : side * (width / 2 + frameT / 2))
+        )
+      );
+    }
+    g.add(
+      this._box(
+        this.darkMetalMat,
+        d.horiz ? width + frameT * 2 : DOOR_T + 0.08,
+        frameT,
+        d.horiz ? DOOR_T + 0.08 : width + frameT * 2,
+        d.x,
+        DOOR_H + 0.12,
+        d.z
+      )
+    );
 
     // The serial, stencilled on both faces so it reads from either side. Built
     // once and kept on the room state — walking away and back must not mint a
@@ -219,75 +527,129 @@ export class SafeRooms {
       });
     }
     const serialMat = room.serialMat;
+    // Parented to the DOOR, in local space, so the number swings away with it —
+    // it's painted on the thing, not floating in the doorway.
+    const plates = [];
     for (const sign of [1, -1]) {
       const plate = new THREE.Mesh(this.plateGeo, serialMat);
       plate.position.set(
-        d.x + (d.horiz ? 0 : sign * (DOOR_T / 2 + 0.02)),
+        d.horiz ? 0 : sign * (DOOR_T / 2 + 0.02),
         1.95,
-        d.z + (d.horiz ? sign * (DOOR_T / 2 + 0.02) : 0)
+        d.horiz ? sign * (DOOR_T / 2 + 0.02) : 0
       );
-      if (d.horiz) plate.rotation.y = sign > 0 ? 0 : Math.PI;
-      else plate.rotation.y = sign > 0 ? Math.PI / 2 : -Math.PI / 2;
-      g.add(plate);
-      door.userData.plates = door.userData.plates || [];
-      door.userData.plates.push(plate);
+      plate.rotation.y = d.horiz ? (sign > 0 ? 0 : Math.PI) : sign > 0 ? Math.PI / 2 : -Math.PI / 2;
+      door.add(plate);
+      plates.push(plate);
     }
-    room.meshes.plates = door.userData.plates;
+    room.meshes.plates = plates;
 
     // --- The KeySwitch, out in the hallways --------------------------------
+    // A proper fire-alarm assembly: a backing plate bolted to the wall, the red
+    // housing, a hinged lever arm with a ball grip, and the serial glowing above
+    // it. The lever ARM is what moves when you pull it — it swings down on its own
+    // pivot and stays down, so a switch you've already pulled reads as pulled from
+    // across the corridor.
     const sw = this._switchPlacement(s);
     room.switchPos = sw;
-    const box = new THREE.Mesh(this.boxGeo, this.switchMat);
-    box.scale.set(0.42, 0.62, 0.18);
-    box.position.set(sw.x, 1.5, sw.z);
-    box.rotation.y = sw.yaw;
-    g.add(box);
-    const lever = new THREE.Mesh(this.boxGeo, this.leverMat);
-    lever.scale.set(0.1, 0.3, 0.1);
-    lever.position.set(sw.x, 1.32, sw.z);
-    lever.translateZ(0.14);
-    lever.rotation.y = sw.yaw;
-    g.add(lever);
-    room.meshes.lever = lever;
+    const swGroup = new THREE.Group();
+    swGroup.position.set(sw.x, 0, sw.z);
+    swGroup.rotation.y = sw.yaw;
+
+    swGroup.add(this._box(this.darkMetalMat, 0.56, 0.78, 0.05, 0, 1.5, 0.01));  // backing plate
+    swGroup.add(this._box(this.switchMat, 0.44, 0.64, 0.14, 0, 1.5, 0.08));     // housing
+    swGroup.add(this._box(this.darkMetalMat, 0.5, 0.05, 0.16, 0, 1.16, 0.08));  // lip beneath
+    // Two bolts, top corners.
+    for (const bx of [-0.22, 0.22]) {
+      swGroup.add(this._rod(this.darkMetalMat, 0.03, 0.04, bx, 1.83, 0.03));
+    }
+
+    // The lever, on its own pivot at the top of the slot.
+    const leverPivot = new THREE.Group();
+    leverPivot.position.set(0, 1.62, 0.15);
+    const arm = this._rod(this.leverMat, 0.035, 0.34, 0, -0.17, 0);
+    const grip = new THREE.Mesh(this.knobGeo, this.leverMat);
+    grip.scale.set(0.075, 0.075, 0.075);
+    grip.position.set(0, -0.36, 0);
+    leverPivot.add(arm, grip);
+    swGroup.add(leverPivot);
+    room.meshes.lever = leverPivot;
+
     const swPlate = new THREE.Mesh(this.plateGeo, serialMat);
     swPlate.scale.set(0.62, 0.62, 1);
-    swPlate.position.set(sw.x, 2.05, sw.z);
-    swPlate.rotation.y = sw.yaw;
-    swPlate.translateZ(0.02);
-    g.add(swPlate);
+    swPlate.position.set(0, 2.06, 0.03);
+    swGroup.add(swPlate);
+    g.add(swGroup);
 
     // --- Terminal + locker on the back wall --------------------------------
     const back = this._backWall(s);
-    const term = new THREE.Mesh(this.boxGeo, this.metalMat);
-    term.scale.set(1.1, 1.3, 0.7);
-    term.position.set(back.termX, 0.65, back.termZ);
-    term.rotation.y = back.yaw;
-    g.add(term);
-    const screen = new THREE.Mesh(this.plateGeo, this.screenMat);
-    screen.scale.set(1.2, 1.6, 1);
-    screen.position.set(back.termX, 1.15, back.termZ);
-    screen.rotation.y = back.yaw;
-    screen.translateZ(0.37);
-    g.add(screen);
+
+    // The terminal: a desk unit with a raked CRT sitting on it, a glowing screen,
+    // and a keyboard shelf. The screen is self-lit — it's the first thing you see
+    // when you get in, and it's what you came for.
+    const termGroup = new THREE.Group();
+    termGroup.position.set(back.termX, 0, back.termZ);
+    termGroup.rotation.y = back.yaw;
+    termGroup.add(this._box(this.metalMat, 1.3, 0.72, 0.62, 0, 0.36, 0));      // desk
+    termGroup.add(this._box(this.darkMetalMat, 1.36, 0.06, 0.68, 0, 0.75, 0)); // worktop
+    termGroup.add(this._box(this.darkMetalMat, 1.0, 0.03, 0.3, 0, 0.79, 0.2)); // keyboard shelf
+    termGroup.add(this._box(this.metalMat, 0.94, 0.74, 0.5, 0, 1.16, -0.06));  // CRT body
+    const bezel = this._box(this.darkMetalMat, 0.86, 0.62, 0.06, 0, 1.18, 0.2);
+    termGroup.add(bezel);
+    const screen = this._box(this.screenMat, 0.74, 0.5, 0.02, 0, 1.18, 0.24);
+    termGroup.add(screen);
     room.meshes.screen = screen;
+    // Cable running down the back into the floor.
+    termGroup.add(this._rod(this.darkMetalMat, 0.035, 0.9, 0.5, 0.45, -0.3));
+    g.add(termGroup);
     room.termPos = { x: back.termX, z: back.termZ };
 
-    const locker = new THREE.Mesh(this.boxGeo, this.metalMat);
-    locker.scale.set(0.9, 1.8, 0.5);
-    locker.position.set(back.lockX, 0.9, back.lockZ);
-    locker.rotation.y = back.yaw;
-    g.add(locker);
-    room.meshes.locker = locker;
+    // The locker: a steel cabinet with a handle, a hinge column, and — crucially —
+    // a self-lit status strip. Without that it was an unlit box in an unlit room,
+    // i.e. invisible, which is why it seemed like there was no locker at all.
+    const lockGroup = new THREE.Group();
+    lockGroup.position.set(back.lockX, 0, back.lockZ);
+    lockGroup.rotation.y = back.yaw;
+    lockGroup.add(this._box(this.metalMat, 0.96, 1.9, 0.46, 0, 0.95, 0));
+    const lockDoor = this._box(this.darkMetalMat, 0.86, 1.76, 0.05, 0, 0.95, 0.25);
+    lockGroup.add(lockDoor);
+    room.meshes.lockerDoor = lockDoor;
+    lockGroup.add(this._rod(this.darkMetalMat, 0.03, 1.8, -0.42, 0.95, 0.22));  // hinge column
+    lockGroup.add(this._box(this.metalMat, 0.06, 0.26, 0.08, 0.3, 1.0, 0.3));   // handle
+    const strip = this._box(this.trimMat, 0.5, 0.05, 0.02, 0, 1.62, 0.29);      // status strip
+    lockGroup.add(strip);
+    room.meshes.lockerStrip = strip;
+    lockGroup.add(this._box(this.metalMat, 1.0, 0.06, 0.5, 0, 1.93, 0));        // top cap
+    g.add(lockGroup);
+    room.meshes.locker = lockGroup;
     room.lockPos = { x: back.lockX, z: back.lockZ };
 
+    // --- The room's emergency lamp ------------------------------------------
+    // The hotel's fluorescents don't reach in here (world.js kills the ceiling
+    // panels over a room). This is the only light in the place and it is red — so
+    // the inside of a safe room glows a dull, wrong red instead of that sick
+    // institutional yellow. It's how you know you're somewhere else.
+    const lamp = this._box(this.lampMat, 0.5, 0.16, 0.2, s.cxWorld, WALL_H - 0.14, s.czWorld);
+    g.add(lamp);
+    g.add(this._box(this.darkMetalMat, 0.62, 0.1, 0.3, s.cxWorld, WALL_H - 0.04, s.czWorld)); // housing
+    room.meshes.lamp = lamp;
+
     // --- The panic button, on the wall beside the door ----------------------
+    // A hinged safety cover over a big red mushroom head. You are not going to
+    // press this by accident.
     const panic = this._panicPlacement(s);
-    const btn = new THREE.Mesh(this.boxGeo, this.panicMat);
-    btn.scale.set(0.3, 0.3, 0.12);
-    btn.position.set(panic.x, 1.5, panic.z);
-    btn.rotation.y = panic.yaw;
-    g.add(btn);
-    room.meshes.panic = btn;
+    const panicGroup = new THREE.Group();
+    panicGroup.position.set(panic.x, 0, panic.z);
+    panicGroup.rotation.y = panic.yaw;
+    panicGroup.add(this._box(this.darkMetalMat, 0.4, 0.4, 0.06, 0, 1.5, 0.02)); // backplate
+    panicGroup.add(this._box(this.metalMat, 0.34, 0.34, 0.1, 0, 1.5, 0.06));    // housing
+    const head = new THREE.Mesh(this.knobGeo, this.panicMat);
+    head.scale.set(0.12, 0.06, 0.12);
+    head.rotation.x = Math.PI / 2;
+    head.position.set(0, 1.5, 0.13);
+    panicGroup.add(head);
+    panicGroup.add(this._box(this.trimMat, 0.3, 0.02, 0.02, 0, 1.29, 0.08));    // label strip
+    g.add(panicGroup);
+    room.meshes.panic = head;
     room.panicPos = panic;
 
     // --- Planks (once — a plank you took stays taken) ------------------------
@@ -311,18 +673,56 @@ export class SafeRooms {
 
     this.scene.add(g);
     room.group = g;
+
+    // Restore anything already done to this room. It streams out when you walk
+    // away and rebuilds when you come back, so a lever you pulled ten minutes ago
+    // has to still be DOWN, and a locker you opened has to still be OPEN — a room
+    // that silently reset itself on a chunk reload would be a nasty bug to chase.
+    if (room.switchPulled && room.meshes.lever) room.meshes.lever.rotation.x = 1.15;
+    if (room.lockerOpen) {
+      if (room.meshes.lockerDoor) {
+        room.meshes.lockerDoor.rotation.y = -1.1;
+        room.meshes.lockerDoor.position.x -= 0.38;
+        room.meshes.lockerDoor.position.z += 0.16;
+      }
+      if (room.meshes.lockerStrip) room.meshes.lockerStrip.material = this.trimLitMat;
+    }
+    if (room.panicUsed && room.meshes.panic) room.meshes.panic.material = this.wreckMat;
+
     this._applyDoorVisual(room);
     this._rebuildBounds();
   }
 
+  // A prop lying on the floor. Planks are real timber — grained, nailed, and with
+  // a faint glow strip along the top so you can spot one in an unlit room without
+  // it looking like a floating neon stick.
   _propMesh(p) {
-    const mat = p.type === "plank" ? this.plankGlowMat : this.rewardMats[p.type] || this.screenMat;
-    const m = new THREE.Mesh(this.boxGeo, mat);
-    if (p.type === "plank") m.scale.set(1.5, 0.09, 0.28);
-    else m.scale.set(0.32, 0.32, 0.32);
-    m.position.set(p.x, p.type === "plank" ? 0.1 : 0.42, p.z);
-    m.rotation.y = p.rot || 0;
-    return m;
+    const group = new THREE.Group();
+    group.position.set(p.x, 0, p.z);
+    group.rotation.y = p.rot || 0;
+
+    if (p.type === "plank") {
+      const board = new THREE.Mesh(this.boxGeo, this.woodMat);
+      board.scale.set(1.55, 0.08, 0.3);
+      board.position.y = 0.1;
+      board.rotation.z = 0.03; // never perfectly flat — it's junk on a floor
+      group.add(board);
+      // Bent nails still in the ends, and a rusty one lying beside it.
+      for (const nx of [-0.6, 0.6]) {
+        const nail = this._rod(this.darkMetalMat, 0.022, 0.09, nx, 0.16, 0);
+        nail.rotation.z = 0.25;
+        group.add(nail);
+      }
+      // The glow strip: it reads as "you can pick this up", not as a light source.
+      group.add(this._box(this.plankGlowMat, 1.5, 0.012, 0.05, 0, 0.145, 0));
+      return group;
+    }
+
+    const item = new THREE.Mesh(this.boxGeo, this.rewardMats[p.type] || this.screenMat);
+    item.scale.set(0.32, 0.32, 0.32);
+    item.position.y = 0.42;
+    group.add(item);
+    return group;
   }
 
   _unload(room) {
@@ -336,18 +736,51 @@ export class SafeRooms {
   // Bolt the switch to a REAL wall of a hallway cell out beyond the room. If the
   // cell it picked somehow has no walls at all (an open junction), we fall back to
   // standing it in the middle of the floor rather than dropping it into the void.
+  // Bolt the switch to a REAL, WHOLE wall of a hallway cell out beyond the room.
+  //
+  // Never a windowed wall: a window is a hole with a sill, so a switch mounted on
+  // one would be hanging in mid-air over the gap, reachable and readable from the
+  // wrong side, and plainly broken. `isWindowWall` exists purely to rule that out.
+  //
+  // If the cell it picked somehow has no solid wall at all (an open junction), we
+  // stand it in the middle of the floor rather than dropping it into the void.
   _switchPlacement(s) {
-    const [ci, cj] = s.switchCell;
-    const cx = (ci + 0.5) * CELL;
-    const cz = (cj + 0.5) * CELL;
-    const faces = [
-      { on: isWall(1, ci, cj), x: ci * CELL + 0.22, z: cz, yaw: Math.PI / 2 },        // west wall
-      { on: isWall(1, ci + 1, cj), x: (ci + 1) * CELL - 0.22, z: cz, yaw: -Math.PI / 2 }, // east
-      { on: isWall(0, ci, cj), x: cx, z: cj * CELL + 0.22, yaw: 0 },                  // south
-      { on: isWall(0, ci, cj + 1), x: cx, z: (cj + 1) * CELL - 0.22, yaw: Math.PI },  // north
+    const solid = (t, i, j) => isWall(t, i, j) && !isWindowWall(t, i, j);
+    const inRoom = (i, j) => i >= s.ri && i <= s.ri + 1 && j >= s.rj && j <= s.rj + 1;
+
+    // The ideal cell may have nothing to bolt to — an open junction, or a cell
+    // whose only walls happen to be windows. Rather than leave a lever standing in
+    // mid-air (which happened for about one room in twenty), walk outwards through
+    // neighbouring cells in a FIXED order until we find a solid wall. Fixed order
+    // keeps it deterministic, so the daily challenge still puts every switch in
+    // exactly the same place for everyone.
+    const ring = [
+      [0, 0], [1, 0], [-1, 0], [0, 1], [0, -1],
+      [1, 1], [-1, 1], [1, -1], [-1, -1],
+      [2, 0], [-2, 0], [0, 2], [0, -2],
     ];
-    const found = faces.find((f) => f.on);
-    return found || { x: cx, z: cz, yaw: 0 };
+
+    for (const [ox, oy] of ring) {
+      const ci = s.switchCell[0] + ox;
+      const cj = s.switchCell[1] + oy;
+      if (inRoom(ci, cj)) continue; // it belongs OUT in the hallways
+      const cx = (ci + 0.5) * CELL;
+      const cz = (cj + 0.5) * CELL;
+      const faces = [
+        { on: solid(1, ci, cj), x: ci * CELL + 0.22, z: cz, yaw: Math.PI / 2 },            // west
+        { on: solid(1, ci + 1, cj), x: (ci + 1) * CELL - 0.22, z: cz, yaw: -Math.PI / 2 }, // east
+        { on: solid(0, ci, cj), x: cx, z: cj * CELL + 0.22, yaw: 0 },                      // south
+        { on: solid(0, ci, cj + 1), x: cx, z: (cj + 1) * CELL - 0.22, yaw: Math.PI },      // north
+      ];
+      const found = faces.find((f) => f.on);
+      if (found) return found;
+    }
+
+    // Nowhere in the whole neighbourhood has a wall. Stand it on the floor rather
+    // than dropping it into the void.
+    const ci = s.switchCell[0];
+    const cj = s.switchCell[1];
+    return { x: (ci + 0.5) * CELL, z: (cj + 0.5) * CELL, yaw: 0 };
   }
 
   // The wall opposite the door: where the terminal and the locker live, so you
@@ -536,36 +969,41 @@ export class SafeRooms {
       }
     }
 
-    this._applyDoorVisual(room);
+    this._applyDoorVisual(room, dt);
   }
 
-  _applyDoorVisual(room) {
-    const mesh = room.meshes.door;
-    if (!mesh) return;
+  _applyDoorVisual(room, dt = 0) {
+    const pivot = room.meshes.pivot;
+    const slab = room.meshes.slab;
+    if (!pivot || !slab) return;
     const st = room.door;
     const d = room.spec.door;
 
     if (st.state === "breached") {
-      mesh.material = this.wreckMat;
-      // Hanging off its hinges: dropped, tilted, and shoved out of the frame.
-      mesh.scale.set(d.horiz ? CELL * 0.94 : DOOR_T, DOOR_H * 0.45, d.horiz ? DOOR_T : CELL * 0.94);
-      mesh.position.set(d.x, 0.22, d.z);
-      mesh.rotation.set(d.horiz ? 0.5 : 0, 0, d.horiz ? 0 : 0.5);
+      slab.material = this.wreckMat;
+      // Off its hinges: dropped flat, buckled, half out of the frame.
+      pivot.rotation.y = 0;
+      slab.scale.set(d.horiz ? CELL * 0.94 : DOOR_T, DOOR_H * 0.4, d.horiz ? DOOR_T : CELL * 0.94);
+      slab.position.set(d.horiz ? 0.4 : 0, 0.2, d.horiz ? 0 : 0.4);
+      slab.rotation.set(d.horiz ? 0.55 : 0, 0.2, d.horiz ? 0 : 0.55);
       for (const p of room.meshes.plates || []) p.visible = false;
       return;
     }
 
-    // Open = swung aside. Simply sliding it out of the doorway reads correctly and
-    // costs nothing.
-    const swing = st.state === "open" ? 1 : 0;
-    const along = d.horiz ? [1, 0] : [0, 1];
-    mesh.position.set(d.x + along[0] * swing * CELL * 0.9, DOOR_H / 2, d.z + along[1] * swing * CELL * 0.9);
+    // Swing it on its hinges, easing rather than snapping — a heavy door does not
+    // teleport open.
+    const target = st.state === "open" ? -Math.PI * 0.52 : 0;
+    st.swing = st.swing === undefined ? target : st.swing;
+    st.swing += (target - st.swing) * Math.min(1, (dt || 0.016) * 7);
+    pivot.rotation.y = st.swing;
 
-    // Splintering: as the durability falls the door sinks and darkens, so you can
-    // SEE how much is left without reading the bar.
+    // Splintering: as durability falls, the slab sags in its frame. You can SEE how
+    // much door you have left without ever looking at the bar.
     const t = st.durability / DOOR_MAX;
-    mesh.scale.set(d.horiz ? CELL * 0.94 : DOOR_T, DOOR_H * (0.75 + 0.25 * t), d.horiz ? DOOR_T : CELL * 0.94);
-    for (const p of room.meshes.plates || []) p.visible = swing === 0;
+    const h = DOOR_H * (0.82 + 0.18 * t);
+    slab.scale.set(d.horiz ? CELL * 0.94 : DOOR_T, h, d.horiz ? DOOR_T : CELL * 0.94);
+    slab.position.set(0, h / 2, 0);
+    slab.rotation.set(0, 0, (1 - t) * 0.05); // and leans, as the hinges go
   }
 
   // --- The siege: they hammer, the door gives ------------------------------
@@ -694,7 +1132,10 @@ export class SafeRooms {
       case "switch":
         room.switchPulled = true;
         if (room.door.state === "locked") room.door.state = "closed"; // unlocked, still SHUT
-        if (room.meshes.lever) room.meshes.lever.rotation.x = 0.9;
+        // The arm drops on its pivot and STAYS down — a pulled switch reads as
+        // pulled from the far end of the corridor, so you never have to walk back
+        // to check whether you already did this one.
+        if (room.meshes.lever) room.meshes.lever.rotation.x = 1.15;
         this.audio.switchPull();
         // A switch being thrown is a hard, mechanical CLANG. It carries.
         this.entities.hearNoise(player.pos.x, player.pos.z, 20);
@@ -812,7 +1253,14 @@ export class SafeRooms {
     prize.mesh = this._propMesh(prize);
     room.props.push(prize);
     if (room.group) room.group.add(prize.mesh);
-    if (room.meshes.locker) room.meshes.locker.rotation.y += 0.5;
+    // The cabinet door swings wide and its strip goes from cyan standby to a live
+    // green — visible across the room, so you know it worked without turning round.
+    if (room.meshes.lockerDoor) {
+      room.meshes.lockerDoor.rotation.y = -1.1;
+      room.meshes.lockerDoor.position.x -= 0.38;
+      room.meshes.lockerDoor.position.z += 0.16;
+    }
+    if (room.meshes.lockerStrip) room.meshes.lockerStrip.material = this.trimLitMat;
 
     this.closeTerminal(player);
     this.fx.taskDone(room.reward);

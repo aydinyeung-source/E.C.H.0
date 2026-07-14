@@ -22,6 +22,21 @@ const WALK_BOB_X = 0.028;
 const RUN_BOB_Y = 0.075;
 const RUN_BOB_X = 0.045;
 
+// VAULTING A WINDOW.
+// A smashed window is a hole in a wall with a waist-high sill, not a doorway —
+// its sill is solid to you exactly like any other wall. The only way through is
+// to get your body over it, and pushing into one starts that automatically.
+//
+// There is no jump button, and there should not be: a vault is not a choice you
+// make, it is what happens when a person running for their life meets a hole in a
+// wall. It also means the animation can be COMMITTED — once it starts you cannot
+// steer, stop, or back out, which is what gives it weight and makes it a real
+// decision about where you'll end up.
+const VAULT_SPEED = 4.3;   // slower than a sprint: this costs you a moment
+const VAULT_LIFT = 0.55;   // how high the camera arcs over the sill
+const VAULT_CLEAR = 0.6;   // how far past the wall you land
+const VAULT_REACH = 0.5;   // how close you must be for the sill to grab you
+
 const _right = new THREE.Vector3();
 
 // Default look sensitivity (radians of rotation per pixel of mouse movement).
@@ -46,6 +61,7 @@ export class Player {
     this.touchStrafe = 0;
     this.bobPhase = 0;    // stride phase for the head bob
     this.bobAmount = 0;   // 0..1, eased so the bob starts/stops smoothly
+    this.vault = null;    // {dirX,dirZ,left,total} while going over a window sill
     this.euler = new THREE.Euler(0, 0, 0, "YXZ"); // yaw then pitch, no roll
     this._bindInput();
     this._apply();
@@ -65,6 +81,7 @@ export class Player {
     this.touchStrafe = 0;
     this.bobPhase = 0;
     this.bobAmount = 0;
+    this.vault = null; // never resume a run mid-hop through a wall
     this._apply();
   }
 
@@ -113,7 +130,50 @@ export class Player {
     }
   }
 
+  // Already committed to a vault: carry it through. No input is read at all here.
+  _advanceVault(dt, world) {
+    const v = this.vault;
+    const step = Math.min(VAULT_SPEED * dt, v.left);
+    this.pos.x += v.dirX * step;
+    this.pos.z += v.dirZ * step;
+    v.left -= step;
+
+    this.pos.y = EYE_HEIGHT;
+    // vaulting: true is the ONLY thing that lets the sill be passed.
+    world.collide(this.pos, PLAYER_RADIUS, { player: true, vaulting: true });
+    if (v.left <= 0.001) this.vault = null;
+  }
+
+  // Am I about to walk into a window? If so, go over it instead.
+  // The test is against the MOVEMENT direction, not where the camera is pointing —
+  // otherwise merely glancing at a window while strafing past it would launch you
+  // through it.
+  _tryVault(world, ux, uz) {
+    const w = world.windowNear(this.pos.x, this.pos.z, PLAYER_RADIUS + VAULT_REACH);
+    if (!w) return false;
+
+    const horiz = w.maxX - w.minX >= w.maxZ - w.minZ;
+    const cx = (w.minX + w.maxX) / 2;
+    const cz = (w.minZ + w.maxZ) / 2;
+
+    // The crossing direction is straight through the wall, from whichever side
+    // you're standing on.
+    const dirX = horiz ? 0 : this.pos.x < cx ? 1 : -1;
+    const dirZ = horiz ? (this.pos.z < cz ? 1 : -1) : 0;
+    if (ux * dirX + uz * dirZ < 0.4) return false; // not actually heading into it
+
+    const gap = horiz ? Math.abs(cz - this.pos.z) : Math.abs(cx - this.pos.x);
+    const dist = gap + PLAYER_RADIUS + VAULT_CLEAR;
+    this.vault = { dirX, dirZ, left: dist, total: dist };
+    return true;
+  }
+
   _move(dt, world) {
+    if (this.vault) {
+      this._advanceVault(dt, world);
+      return;
+    }
+
     // Keys (PC) and the touch joystick (mobile) feed the same two axes.
     let fwd = this.touchFwd;
     let strafe = this.touchStrafe;
@@ -135,6 +195,12 @@ export class Player {
       const dz = fwd * -cos + strafe * -sin;
       const len = Math.hypot(dx, dz);
       if (len > 0) {
+        // Walking into a window takes over: the vault starts here and this frame's
+        // ordinary movement is abandoned.
+        if (this._tryVault(world, dx / len, dz / len)) {
+          this._advanceVault(dt, world);
+          return;
+        }
         const step = (speed * dt * mag) / len;
         this.pos.x += dx * step;
         this.pos.z += dz * step;
@@ -142,8 +208,7 @@ export class Player {
     }
 
     this.pos.y = EYE_HEIGHT;
-    // `true` = you can squeeze through a broken window. The entities can't.
-    world.collide(this.pos, PLAYER_RADIUS, true);
+    world.collide(this.pos, PLAYER_RADIUS, { player: true, vaulting: false });
   }
 
   _apply() {
@@ -152,8 +217,15 @@ export class Player {
     // to zero when standing still.
     const ampY = (this.running ? RUN_BOB_Y : WALK_BOB_Y) * this.bobAmount;
     const ampX = (this.running ? RUN_BOB_X : WALK_BOB_X) * this.bobAmount;
-    const offY = Math.sin(this.bobPhase * 2) * ampY;
+    let offY = Math.sin(this.bobPhase * 2) * ampY;
     const offX = Math.sin(this.bobPhase) * ampX;
+
+    // Mid-vault the bob is replaced by a single clean arc: up over the sill and
+    // back down the far side.
+    if (this.vault) {
+      const p = 1 - this.vault.left / this.vault.total; // 0 -> 1 across the hole
+      offY = Math.sin(p * Math.PI) * VAULT_LIFT;
+    }
 
     // Sway along the camera's right vector so it stays relative to where you face.
     _right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));

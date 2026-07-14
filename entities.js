@@ -524,9 +524,20 @@ export class EntitySystem {
         continue;
       }
 
+      // --- It got you ---
+      // And it does not survive the exchange. Whatever these things are, taking a
+      // person costs them everything — it burns itself out doing it and is gone.
+      //
+      // In a normal run this is flavour: the run is over anyway. Where it MATTERS
+      // is that it stops the kill being a state you sit inside. Previously an
+      // entity that reached you just stood there catching you, over and over,
+      // every frame. Now one catch spends one of them, the maze is quieter for it,
+      // and the population cooldown means the space it leaves stays empty a while.
       if (dPlayer < KILL_RADIUS) {
         caught = true;
         nearest = Math.min(nearest, dPlayer);
+        this.scene.remove(e.group);
+        this.entities.splice(i, 1);
         continue;
       }
       nearest = Math.min(nearest, dPlayer);

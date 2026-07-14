@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.32.0";
+const VERSION = "v2.33.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -382,11 +382,21 @@ function consumeSelected() {
   renderHotbar();
 }
 
-// F uses whatever is in the SELECTED slot — eat meat, or brandish a crucifix.
+// F (and the mobile USE button) uses whatever is in the SELECTED slot — eat meat,
+// light a torch, brandish a crucifix.
+//
+// With an EMPTY slot selected it falls through to interact instead. On mobile
+// that means USE always does the sensible thing: hold nothing, and it pulls the
+// lever / uses the terminal in front of you, rather than being a dead button you
+// have to think about. There's no ambiguity to resolve — an empty slot has
+// nothing to use.
 function useSelected() {
   if (!playing) return;
   const s = hotbar[selectedSlot];
-  if (!s || s.count <= 0) return;
+  if (!s || s.count <= 0) {
+    interactPress();
+    return;
+  }
 
   if (s.type === "meat") {
     if (energy >= ENERGY_MAX) return; // refuse, so food isn't wasted
@@ -606,6 +616,7 @@ function showGameOver() {
 // An entity reached the player: jumpscare, then end the run.
 function die() {
   if (dead) return;
+  audio.entityDeath(); // it went with you — entities.js has already removed it
 
   // Playtest immunity: they still hunt you, still catch you, still breathe down
   // your neck — you simply do not die. Everything else about the run is real, so

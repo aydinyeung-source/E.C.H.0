@@ -39,17 +39,23 @@ const DOOR_PROB = 0.3;
 const BLOOD_CHANCE = 0.03; // fraction of individual walls that carry bloody writing
 
 // BROKEN WINDOWS. Each wall independently has this chance of being smashed out:
-// two posts and a lintel with a floor-level gap. YOU can squeeze through it. The
-// entities CANNOT — they're blocked, and their pathfinder won't even consider it.
-// It's a hail mary: dive through a window and whatever is chasing you has to go
-// the long way round.
+// two posts, a lintel, and a waist-high SILL with a hole above it.
+//
+// It is a HOLE IN A WALL, not a doorway. You do not walk through it — you have to
+// get your body over the sill, and the game vaults you automatically the moment
+// you push into one (see player.js). The entities cannot follow: they're blocked
+// by the sill, and their pathfinder won't even consider the wall.
+//
+// It's a hail mary. Dive through a window and whatever is chasing you has to go
+// the long way round — but it can still SEE you through the hole the whole time.
 //
 // Note this is a per-wall roll with no cap, so a corridor might have two windows
 // or none — and yes, there is a vanishingly small but real chance that every wall
 // in a given maze is windowed. That's intentional; the odds are the odds.
 const WINDOW_CHANCE = 0.07;
 const WINDOW_OPEN = 0.5;   // fraction of the wall that's the gap
-const WINDOW_H = 2.2;      // height of the opening (lintel sits above it)
+const WINDOW_SILL = 0.95;  // height of the sill you have to clear
+const WINDOW_H = 2.2;      // top of the opening (lintel sits above it)
 
 // Loot lying in the world, per chunk. These are placed IN the level, not spawned
 // around you — an abandoned place with things left in it.
@@ -163,6 +169,99 @@ function makeWallTexture(grime, kind) {
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(2, 1);
+  return t;
+}
+
+// --- Safe-room surfaces ------------------------------------------------------
+// Inside a safe room NOTHING is yellow. It is bare poured concrete and steel
+// plate — a service space, built by people who meant it to hold, dropped into the
+// middle of a rotting hotel corridor. Crossing the threshold should feel like
+// stepping into a different building, because that contrast is the entire promise
+// the room is making you.
+function makeConcreteTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+
+  g.fillStyle = "#5a5e60";
+  g.fillRect(0, 0, 256, 256);
+
+  // Aggregate speckle.
+  for (let i = 0; i < 4200; i++) {
+    const v = Math.random();
+    g.fillStyle = v < 0.5 ? `rgba(0,0,0,${Math.random() * 0.12})` : `rgba(255,255,255,${Math.random() * 0.08})`;
+    const s = Math.random() * 2.4;
+    g.fillRect(Math.random() * 256, Math.random() * 256, s, s);
+  }
+  // Form-work seams: the lines left by the boards the concrete was poured against.
+  g.strokeStyle = "rgba(0,0,0,0.22)";
+  g.lineWidth = 2;
+  for (let y = 42; y < 256; y += 64) {
+    g.beginPath();
+    g.moveTo(0, y);
+    g.lineTo(256, y);
+    g.stroke();
+  }
+  // Tie-rod holes.
+  for (let y = 42; y < 256; y += 64) {
+    for (let x = 32; x < 256; x += 64) {
+      g.fillStyle = "rgba(0,0,0,0.4)";
+      g.beginPath();
+      g.arc(x, y, 3, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  // Damp patches creeping up from the bottom.
+  for (let i = 0; i < 5; i++) {
+    const rx = Math.random() * 256;
+    const rr = 20 + Math.random() * 50;
+    const grd = g.createRadialGradient(rx, 256, 0, rx, 256, rr);
+    grd.addColorStop(0, "rgba(20,26,24,0.5)");
+    grd.addColorStop(1, "rgba(20,26,24,0)");
+    g.fillStyle = grd;
+    g.fillRect(rx - rr, 256 - rr, rr * 2, rr);
+  }
+
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+// Steel diamond plate for the room's floor — the tread pattern reads instantly as
+// "industrial" and it catches the torch beam beautifully.
+function makeTreadTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d");
+
+  g.fillStyle = "#4a4f54";
+  g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 2200; i++) {
+    g.fillStyle = `rgba(0,0,0,${Math.random() * 0.1})`;
+    g.fillRect(Math.random() * 128, Math.random() * 128, 1.5, 1.5);
+  }
+
+  // Raised diamonds, drawn as a lit edge over a dark one so they read as 3D.
+  const draw = (ox, oy) => {
+    for (let x = 8; x < 128; x += 32) {
+      for (let y = 8; y < 128; y += 32) {
+        g.save();
+        g.translate(x + ox, y + oy);
+        g.rotate(((x + y) % 64 ? 1 : -1) * 0.6);
+        g.fillStyle = "rgba(0,0,0,0.35)";
+        g.fillRect(-9, -3, 18, 6);
+        g.fillStyle = "rgba(190,200,210,0.22)";
+        g.fillRect(-9, -3, 18, 3);
+        g.restore();
+      }
+    }
+  };
+  draw(0, 0);
+  draw(16, 16);
+
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(6, 6);
   return t;
 }
 
@@ -347,8 +446,21 @@ function wallPresent(type, i, j) {
 }
 
 // Is this wall smashed out into a window? Deterministic per wall.
+//
+// NEVER on a safe room's shell. That isn't cosmetic — a window in a safe-room
+// wall is a hole you could vault straight through, which would let you skip the
+// switch, skip the serial, skip the door, and walk into the reward. The room's
+// one-way-in guarantee IS the mechanic, and this is where it's enforced.
 function isWindow(type, i, j) {
+  if (roomEdge(type, i, j)) return false;
   return hash2(i, j, type === 0 ? 611 : 711) < WINDOW_CHANCE;
+}
+
+// A wall that is present AND smashed out. The safe rooms use it to avoid bolting
+// a KeySwitch onto a wall with a hole in it — you'd be able to see and reach the
+// lever from the wrong side, and it looks broken.
+export function isWindowWall(type, i, j) {
+  return wallPresent(type, i, j) && isWindow(type, i, j);
 }
 
 // -----------------------------------------------------------------------------
@@ -565,8 +677,19 @@ export class World {
     this.floorMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 0, map: makeFloorTexture() });
     this.ceilMat = new THREE.MeshPhongMaterial({ color: COL_CEIL, shininess: 0 });
 
+    // Safe-room surfaces: concrete and steel, and not a trace of yellow.
+    const concrete = makeConcreteTexture();
+    concrete.repeat.set(2, 1);
+    this.roomWallMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 4, map: concrete });
+    this.roomFloorMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 22, map: makeTreadTexture() });
+    this.roomCeilMat = new THREE.MeshPhongMaterial({ color: 0x2a2e30, shininess: 0 });
+    this.roomGeo = new THREE.PlaneGeometry(CELL * 2, CELL * 2); // a room is exactly 2x2 cells
+
     // The world is unlit; the sonar rings (reveal.js) are what light surfaces.
-    [...this.wallMats, this.bloodMat, this.floorMat, this.ceilMat].forEach(installReveal);
+    [
+      ...this.wallMats, this.bloodMat, this.floorMat, this.ceilMat,
+      this.roomWallMat, this.roomFloorMat, this.roomCeilMat,
+    ].forEach(installReveal);
     this.tileGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
     this.panelGeo = new THREE.PlaneGeometry(CELL * 0.62, CELL * 0.62);
     // MeshBasicMaterial ignores scene lighting, so panels glow on their own even
@@ -616,13 +739,14 @@ export class World {
       const x1 = (i + 1) * CELL;
       list.push({ px: x0 + postW / 2, py: WALL_H / 2, pz: cz, sx: postW, sy: WALL_H, sz: WALL_T });
       list.push({ px: x1 - postW / 2, py: WALL_H / 2, pz: cz, sx: postW, sy: WALL_H, sz: WALL_T });
-      list.push({ px: cx, py: WINDOW_H + lintelH / 2, pz: cz, sx: openW, sy: lintelH, sz: WALL_T });
+      list.push({ px: cx, py: WINDOW_H + lintelH / 2, pz: cz, sx: openW, sy: lintelH, sz: WALL_T }); // lintel
+      list.push({ px: cx, py: WINDOW_SILL / 2, pz: cz, sx: openW, sy: WINDOW_SILL, sz: WALL_T });    // sill
 
       bounds.push({ minX: x0, maxX: x0 + postW, minZ: cz - halfT, maxZ: cz + halfT });
       bounds.push({ minX: x1 - postW, maxX: x1, minZ: cz - halfT, maxZ: cz + halfT });
       bounds.push({
         minX: x0 + postW, maxX: x1 - postW, minZ: cz - halfT, maxZ: cz + halfT,
-        entityOnly: true, // the gap: they can't fit, you can
+        window: true, // the sill: solid to everyone — but YOU can vault it
       });
     } else {
       const z0 = j * CELL;
@@ -630,12 +754,13 @@ export class World {
       list.push({ px: cx, py: WALL_H / 2, pz: z0 + postW / 2, sx: WALL_T, sy: WALL_H, sz: postW });
       list.push({ px: cx, py: WALL_H / 2, pz: z1 - postW / 2, sx: WALL_T, sy: WALL_H, sz: postW });
       list.push({ px: cx, py: WINDOW_H + lintelH / 2, pz: cz, sx: WALL_T, sy: lintelH, sz: openW });
+      list.push({ px: cx, py: WINDOW_SILL / 2, pz: cz, sx: WALL_T, sy: WINDOW_SILL, sz: openW });
 
       bounds.push({ minX: cx - halfT, maxX: cx + halfT, minZ: z0, maxZ: z0 + postW });
       bounds.push({ minX: cx - halfT, maxX: cx + halfT, minZ: z1 - postW, maxZ: z1 });
       bounds.push({
         minX: cx - halfT, maxX: cx + halfT, minZ: z0 + postW, maxZ: z1 - postW,
-        entityOnly: true,
+        window: true,
       });
     }
   }
@@ -653,16 +778,17 @@ export class World {
     //     unnaturally clean), with a rare few carrying bloody writing instead. ---
     const buckets = this.wallMats.map(() => []); // one instance list per variant
     const bloodInsts = [];
+    const roomInsts = []; // a safe room's shell: concrete, not wallpaper
     for (let di = 0; di < CHUNK_CELLS; di++) {
       for (let dj = 0; dj < CHUNK_CELLS; dj++) {
         const i = i0 + di;
         const j = j0 + dj;
         for (const type of [0, 1]) {
           if (!wallPresent(type, i, j)) continue;
-          const list =
-            hash2(i, j, type === 0 ? 811 : 911) < BLOOD_CHANCE
-              ? bloodInsts
-              : buckets[wallVariant(type, i, j)];
+          let list;
+          if (roomEdge(type, i, j) === "solid") list = roomInsts;
+          else if (hash2(i, j, type === 0 ? 811 : 911) < BLOOD_CHANCE) list = bloodInsts;
+          else list = buckets[wallVariant(type, i, j)];
           this._buildWall(type, i, j, list, bounds);
         }
       }
@@ -687,6 +813,7 @@ export class World {
     };
     buckets.forEach((list, v) => addWalls(list, this.wallMats[v]));
     addWalls(bloodInsts, this.bloodMat);
+    addWalls(roomInsts, this.roomWallMat);
 
     // --- Floor & ceiling planes ---------------------------------------------
     const centerX = i0 * CELL + CHUNK_SIZE / 2;
@@ -702,6 +829,22 @@ export class World {
     ceil.position.set(centerX, WALL_H, centerZ);
     group.add(ceil);
 
+    // A safe room gets its own floor and ceiling laid over the chunk's, a
+    // millimetre proud of them so there's no z-fighting. Step through the door
+    // and the grimy yellow carpet becomes steel tread plate under your feet.
+    const room = chunkRoom(cx, cy);
+    if (room) {
+      const rFloor = new THREE.Mesh(this.roomGeo, this.roomFloorMat);
+      rFloor.rotation.x = -Math.PI / 2;
+      rFloor.position.set(room.cxWorld, 0.012, room.czWorld);
+      group.add(rFloor);
+
+      const rCeil = new THREE.Mesh(this.roomGeo, this.roomCeilMat);
+      rCeil.rotation.x = Math.PI / 2;
+      rCeil.position.set(room.cxWorld, WALL_H - 0.012, room.czWorld);
+      group.add(rCeil);
+    }
+
     // --- Fluorescent light panels (one per cell, emissive) ------------------
     _q.setFromAxisAngle(_xAxis, Math.PI / 2); // lay each panel flat, facing down
     const panelMesh = new THREE.InstancedMesh(this.panelGeo, this.panelMat, CHUNK_CELLS * CHUNK_CELLS);
@@ -715,9 +858,14 @@ export class World {
         _s.set(1, 1, 1);
         _m.compose(_p, _q, _s);
         panelMesh.setMatrixAt(k, _m);
+        // A safe room's cells get NO fluorescent panel — the hotel's lighting
+        // doesn't reach in there. It has its own emergency lamp instead, which is
+        // why the inside of one glows red rather than that sick yellow-white.
+        const inRoom =
+          room && i >= room.ri && i <= room.ri + 1 && j >= room.rj && j <= room.rj + 1;
         // ~14% burnt out (uncanny gaps); ~20% flicker/strobe; the rest steady.
         const r = hash2(i, j, 303);
-        if (r < 0.14) {
+        if (inRoom || r < 0.14) {
           panelMesh.setColorAt(k, _c.setHex(COL_DEAD));
         } else {
           panelMesh.setColorAt(k, _c.setHex(COL_LIGHT));
@@ -875,30 +1023,54 @@ export class World {
   // geometry on their own — which is what made the distance counter creep up
   // while stationary. Wall boxes genuinely overlap at grid intersections, so
   // being pushed by two at once is normal and has to converge.
-  // `passWindows` is what makes a broken window a player-only escape route: the
-  // player calls this with true and slips through the gap; entities call it with
-  // false (the default) and the gap stops them dead.
-  collide(pos, radius, passWindows = false) {
+  // `opts` distinguishes WHO is colliding, because the two pass-through bounds
+  // behave differently:
+  //   { player: true }   - an open safe-room doorway's ward box is nothing to you
+  //                        (you walk through it); to an entity it is a wall.
+  //   { vaulting: true } - a window's SILL is solid to you too. It only opens
+  //                        while you are actually mid-vault, in the air over it.
+  // Entities pass no opts at all, so every bound is solid to them.
+  collide(pos, radius, opts = null) {
+    const isPlayer = !!(opts && opts.player);
+    const vaulting = !!(opts && opts.vaulting);
     for (let iter = 0; iter < 4; iter++) {
       let overlapped = false;
       for (const chunk of this.chunks.values()) {
         for (const w of chunk.bounds) {
-          if (pushOutOfBox(pos, radius, w, passWindows)) overlapped = true;
+          if (pushOutOfBox(pos, radius, w, isPlayer, vaulting)) overlapped = true;
         }
       }
       for (const w of this.extraBounds) {
-        if (pushOutOfBox(pos, radius, w, passWindows)) overlapped = true;
+        if (pushOutOfBox(pos, radius, w, isPlayer, vaulting)) overlapped = true;
       }
       if (!overlapped) return; // settled
     }
+  }
+
+  // The nearest smashed window within `radius` of a point, or null. player.js uses
+  // this to know when to hoist you over a sill.
+  windowNear(x, z, radius) {
+    for (const chunk of this.chunks.values()) {
+      for (const w of chunk.bounds) {
+        if (!w.window) continue;
+        const nx = Math.max(w.minX, Math.min(x, w.maxX));
+        const nz = Math.max(w.minZ, Math.min(z, w.maxZ));
+        const dx = x - nx;
+        const dz = z - nz;
+        if (dx * dx + dz * dz < radius * radius) return w;
+      }
+    }
+    return null;
   }
 }
 
 // Slab test: does the segment (x1,z1)+(dx,dz) cross this box on the XZ plane?
 // A smashed window (or an open doorway's entity ward) is a HOLE: you can see, be
-// seen and be heard through it. It only stops bodies, not light or sound.
+// seen and be heard through it. It only stops bodies, not light or sound. This is
+// what makes diving through a window a gamble rather than an escape — it still
+// has eyes on you the whole time, it just can't follow.
 function segHitsBox(x1, z1, dx, dz, w) {
-  if (w.entityOnly) return false;
+  if (w.entityOnly || w.window) return false;
 
   let tmin = 0;
   let tmax = 1;
@@ -929,11 +1101,9 @@ function segHitsBox(x1, z1, dx, dz, w) {
 }
 
 // Push a circle out of one box. Returns true if it was overlapping.
-// `passWindows` is what makes a broken window (and an open safe-room doorway) a
-// player-only route: the player passes true and slips through; entities pass
-// false and the gap stops them dead.
-function pushOutOfBox(pos, radius, w, passWindows) {
-  if (passWindows && w.entityOnly) return false;
+function pushOutOfBox(pos, radius, w, isPlayer, vaulting) {
+  if (w.entityOnly && isPlayer) return false;      // open doorway: you just walk through
+  if (w.window && isPlayer && vaulting) return false; // mid-vault: you're over the sill
 
   const nx = Math.max(w.minX, Math.min(pos.x, w.maxX));
   const nz = Math.max(w.minZ, Math.min(pos.z, w.maxZ));

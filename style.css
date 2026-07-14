@@ -1,6 +1,28 @@
+/* ---------------------------------------------------------------------------
+   THE LOOK
+   The UI used to be neon-green sci-fi, which fought the game: you spend the whole
+   run inside a rotting yellow hotel corridor, then the menu hands you a slick
+   green console. It read as a different product.
+   So the interface is now built from the MAP's own materials — the sickly
+   fluorescent yellow of the walls, grimy off-white text, and the flat, squared,
+   institutional look of signage that has been screwed to a wall for forty years.
+   Green survives in exactly one place: the sonar. That's what green MEANS here,
+   and letting it mean anything else was what made the whole thing feel off.
+   --------------------------------------------------------------------------- */
 :root {
   color-scheme: dark;
+  /* A plain grotesque, the typeface of building signage — not a games font. */
   font-family: "Inter", "Segoe UI", Roboto, -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --wall: #d8c840;        /* the wall yellow itself */
+  --wall-dim: #a2952f;
+  --lamp: #fff6df;        /* fluorescent white */
+  --ink: #e8e3cf;         /* grimy off-white text */
+  --ink-soft: rgba(232, 227, 207, 0.62);
+  --ink-faint: rgba(232, 227, 207, 0.34);
+  --panel: rgba(18, 17, 10, 0.82);
+  --panel-line: rgba(216, 200, 64, 0.22);
+  --sonar: #39ff14;       /* reserved. this is the ping, and nothing else. */
 }
 
 * {
@@ -1042,6 +1064,171 @@ button.playtest.active {
   pointer-events: none;
   white-space: nowrap;
 }
+
+/* ===========================================================================
+   LIMINAL RETHEME
+   Overrides, kept in one block at the end so the original rules stay readable.
+   Everything here pulls the interface back towards the building the game is set
+   in: fluorescent yellow, grimy off-white, hard square corners, signage type.
+   =========================================================================== */
+
+body {
+  color: var(--ink);
+}
+
+/* Squared, institutional. Nothing in a hotel corridor has rounded corners. */
+.menu-panel,
+.term-screen,
+.slot,
+.leaderboard li,
+button,
+input[type="text"],
+input[type="password"],
+select {
+  border-radius: 2px !important;
+}
+
+.overlay {
+  /* Warm, dirty darkness rather than a cold green-black. */
+  background: radial-gradient(circle at center, rgba(16, 14, 6, 0.82), rgba(0, 0, 0, 0.95));
+}
+
+#startOverlay {
+  background: radial-gradient(circle at center, rgba(14, 12, 5, 0.5), rgba(0, 0, 0, 0.86));
+}
+
+.menu-panel {
+  border: 1px solid var(--panel-line);
+  background: var(--panel);
+}
+
+/* The title: a dying fluorescent tube, not a neon sign. */
+.panel h1,
+.menu-center h1,
+#startOverlay.signed-out .login-brand h1 {
+  color: var(--lamp);
+  text-shadow: 0 0 12px rgba(255, 246, 223, 0.45), 0 0 34px rgba(216, 200, 64, 0.32);
+}
+
+.tagline,
+.sub,
+.panel-title,
+.controls-hint,
+.hud-energy-label {
+  color: var(--ink-soft);
+}
+
+.leaderboard h3 {
+  color: var(--ink-soft);
+}
+
+.leaderboard li {
+  background: rgba(216, 200, 64, 0.05);
+  color: var(--ink);
+}
+
+.leaderboard li strong {
+  color: var(--wall);
+}
+
+/* Buttons read like the plates screwed onto the doors down there. */
+button {
+  border: 1px solid rgba(216, 200, 64, 0.45);
+  background: rgba(216, 200, 64, 0.08);
+  color: var(--ink);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  transition: background 0.12s linear, border-color 0.12s linear;
+}
+
+button:hover:not(:disabled) {
+  background: rgba(216, 200, 64, 0.2);
+  border-color: rgba(216, 200, 64, 0.8);
+  color: var(--lamp);
+}
+
+button:disabled {
+  opacity: 0.4;
+}
+
+button.secondary {
+  border-color: rgba(232, 227, 207, 0.24);
+  background: rgba(232, 227, 207, 0.04);
+}
+
+input[type="text"],
+input[type="password"],
+select {
+  border: 1px solid rgba(216, 200, 64, 0.24) !important;
+  background: rgba(0, 0, 0, 0.45) !important;
+  color: var(--ink) !important;
+  letter-spacing: 0.06em;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+select:focus {
+  outline: none;
+  border-color: rgba(216, 200, 64, 0.7) !important;
+}
+
+.auth-tabs .tab.active {
+  color: var(--lamp);
+  border-color: rgba(216, 200, 64, 0.6);
+}
+
+/* The reticle is a scuff on the glass, not a laser sight. */
+.crosshair {
+  background: rgba(232, 227, 207, 0.5);
+  box-shadow: 0 0 6px rgba(255, 246, 223, 0.5);
+}
+
+.distance-tag,
+.seed-tag,
+.version-tag {
+  color: rgba(216, 200, 64, 0.72);
+  text-shadow: 0 0 10px rgba(216, 200, 64, 0.28);
+}
+
+/* Energy is the tube light in your chest: it runs warm, and it dims. */
+.hud-energy-track {
+  border-color: rgba(216, 200, 64, 0.28);
+}
+
+.hud-energy-fill {
+  background: linear-gradient(90deg, var(--wall-dim), var(--lamp));
+  box-shadow: 0 0 10px rgba(216, 200, 64, 0.45);
+}
+
+/* Hotbar: dirty steel trays. */
+.slot {
+  border-color: rgba(216, 200, 64, 0.2);
+  background: rgba(10, 9, 5, 0.66);
+}
+
+.slot.selected {
+  border-color: rgba(216, 200, 64, 0.9);
+  box-shadow: 0 0 10px rgba(216, 200, 64, 0.3);
+}
+
+/* Mobile buttons: hard, square, screwed-on. */
+.mc-btn {
+  border-radius: 3px;
+  border: 1px solid rgba(216, 200, 64, 0.42);
+  background: rgba(16, 14, 6, 0.72);
+  color: var(--ink);
+  letter-spacing: 0.1em;
+}
+
+.mc-btn:active,
+.mc-btn.active {
+  background: rgba(216, 200, 64, 0.26);
+  color: var(--lamp);
+}
+
+/* The radar keeps its green. It is the sonar, and the sonar is the one thing in
+   this game that is allowed to be that colour. */
 
 /* A wooden plank, in the hotbar. */
 .slot-icon.plank {

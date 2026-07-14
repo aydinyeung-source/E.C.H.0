@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.33.0";
+const VERSION = "v2.34.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -53,7 +53,6 @@ const torchBar = document.getElementById("torchBar");
 const torchFill = document.getElementById("torchFill");
 const settingsToggle = document.getElementById("settingsToggle");
 const settingsBody = document.getElementById("settingsBody");
-const mcAct = document.getElementById("mcAct");
 const playtestTag = document.getElementById("playtestTag");
 const deathTag = document.getElementById("deathTag");
 const doorBar = document.getElementById("doorBar");
@@ -754,19 +753,30 @@ function onPress(el, fn) {
 }
 
 onPress(mcPing, () => fireSonar());
-onPress(mcEat, () => useSelected());
 
-// ACT is press-AND-hold: a tap does the contextual action, holding it down boards
-// up a door. pointerup/cancel both have to release it or a lost touch would leave
-// you hammering forever.
-mcAct.addEventListener("pointerdown", (e) => {
+// USE is the ONLY action button on mobile, and it is context-first:
+//
+//   * If the game is showing you a prompt (pull the switch, use the terminal, hit
+//     the panic button, board up the door), USE does that.
+//   * Otherwise it uses whatever is in the selected hotbar slot.
+//   * HOLDING it boards up a door, which is why it can't just be onPress().
+//
+// The prompt wins on purpose. A separate ACT button meant a permanent extra thing
+// on screen for a mechanic you meet in maybe one room in ten — and when there's a
+// switch in front of you, acting on it is what you want. The cost is that standing
+// AT a safe-room fixture, USE won't eat: take one step back and it will.
+//
+// pointerup AND pointercancel both have to release the hold, or a touch that
+// slides off the button would leave you hammering nails forever.
+mcEat.addEventListener("pointerdown", (e) => {
   e.preventDefault();
   e.stopPropagation();
   interactHeld = true;
-  interactPress();
+  if (saferooms.prompt) interactPress();
+  else useSelected();
 });
 for (const ev of ["pointerup", "pointercancel", "pointerleave"]) {
-  mcAct.addEventListener(ev, () => {
+  mcEat.addEventListener(ev, () => {
     interactHeld = false;
   });
 }
@@ -987,6 +997,12 @@ function updateSafeRoomHud() {
   const text = announceTimer > 0 ? announceText : saferooms.prompt ? saferooms.prompt.text : "";
   usePrompt.textContent = text;
   usePrompt.classList.toggle("hidden", !text);
+
+  // Tell the mobile USE button what it's about to do. Without this you'd have to
+  // remember the rule; with it, the button just changes colour when it's going to
+  // act on the room instead of your inventory.
+  mcEat.classList.toggle("acting", !!saferooms.prompt);
+  mcEat.textContent = saferooms.prompt ? "ACT" : "USE";
 
   renderTerminal();
 }

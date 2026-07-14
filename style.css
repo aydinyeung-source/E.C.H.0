@@ -1237,15 +1237,16 @@ select:focus {
   box-shadow: 0 0 6px rgba(230, 180, 100, 0.5);
 }
 
-/* The mobile ACT button (interact / hold to board up). */
-#mcAct {
-  right: 118px;
-  bottom: 306px;
-  border-color: rgba(60, 210, 255, 0.5);
+/* USE is the single mobile action button: tap to use the selected item or act on
+   the current prompt, hold to board up a door. It gets the cyan treatment while a
+   safe-room prompt is up, so you can see at a glance that it will act on the room
+   rather than eat your dinner. */
+#mcEat.acting {
+  border-color: rgba(60, 210, 255, 0.7);
   color: #9ff0ff;
 }
 
-#mcAct:active {
+#mcEat.acting:active {
   background: rgba(60, 210, 255, 0.28);
 }
 

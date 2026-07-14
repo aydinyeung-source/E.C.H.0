@@ -78,9 +78,10 @@
     <div class="mobile-controls hidden" id="mobileControls">
       <button class="mc-btn" id="mcPing" type="button">PING</button>
       <button class="mc-btn" id="mcRun" type="button">RUN</button>
+      <!-- USE does everything: tap to use the selected item, or to act on whatever
+           the on-screen prompt says (pull a switch, use a terminal, hit the panic
+           button). Hold it to board up a door. -->
       <button class="mc-btn" id="mcEat" type="button">USE</button>
-      <!-- Hold this one: it's also how you board up a door. -->
-      <button class="mc-btn mc-act" id="mcAct" type="button">ACT</button>
       <button class="mc-btn mc-pause" id="mcPause" type="button">II</button>
     </div>
 
@@ -119,7 +120,7 @@
         </p>
         <p class="controls-hint">
           <strong>PC:</strong> WASD move · Mouse look · Q run · 1-9 / scroll select slot · F use · E interact · Esc pause<br />
-          <strong>Mobile:</strong> left half moves · right half looks · tap a hotbar slot to select · USE / ACT buttons
+          <strong>Mobile:</strong> left half moves · right half looks · tap a hotbar slot to select · USE (hold to board up a door)
         </p>
         <p class="controls-hint">
           <strong>Safe rooms:</strong> find the switch with the matching serial, pull it,

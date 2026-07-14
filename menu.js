@@ -13,7 +13,12 @@ import {
   getUsername,
   onAuthChange,
   fetchDailyLeaderboard,
+  isSessionValid,
 } from "./supabase.js";
+
+// How often a signed-in client asks the server "do I still hold this account?".
+// Logging in elsewhere evicts you within this window.
+const SESSION_CHECK_MS = 10000;
 
 const el = (id) => document.getElementById(id);
 
@@ -74,7 +79,28 @@ export const Menu = {
     // React to any future login/logout, then sync the initial state.
     onAuthChange((user) => this._syncUser(user));
     this.user = await getCurrentUser();
-    this._syncUser(this.user);
+    await this._syncUser(this.user);
+
+    // One account, one device. Poll rather than push: it needs no realtime
+    // channel, it survives a dropped socket, and a ten-second eviction window is
+    // indistinguishable from instant for a human being logging in on their phone.
+    setInterval(() => this._checkSession(), SESSION_CHECK_MS);
+    this._checkSession(); // and immediately, in case we were evicted while away
+  },
+
+  // Fired when this device loses the account to another one. game.js sets this to
+  // bail out of any run in progress — you cannot be left wandering the maze with
+  // a dead session.
+  onSessionRevoked: null,
+
+  async _checkSession() {
+    if (!this.user) return;
+    if (await isSessionValid()) return;
+
+    await signOut();
+    await this._syncUser(null);
+    this.msg.textContent = "Signed out — this account was used on another device.";
+    if (this.onSessionRevoked) this.onSessionRevoked();
   },
 
   _setMode(mode) {

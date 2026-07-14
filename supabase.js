@@ -66,6 +66,42 @@ function usernameToEmail(username) {
   return `${username.trim().toLowerCase()}@echo0.app`;
 }
 
+// --- Single session per account ---------------------------------------------
+// This device's permanent id. It identifies the BROWSER, not the run — logging
+// out and back in on the same machine must not evict yourself, so it's stored
+// once and reused forever.
+const DEVICE_KEY = "echo-device-id";
+
+export function deviceId() {
+  let id = localStorage.getItem(DEVICE_KEY);
+  if (!id) {
+    id = (crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2) + Date.now();
+    localStorage.setItem(DEVICE_KEY, id);
+  }
+  return id;
+}
+
+// Take the account for this device, kicking any other. Called ONLY from an
+// explicit login — see the schema comment for why a claim-on-refresh would put
+// two devices in an infinite eviction loop.
+async function claimSession() {
+  const client = await loadClient();
+  if (!client) return;
+  await client.rpc("claim_session", { p_device: deviceId() });
+}
+
+// Do we still hold the account? Returns TRUE when it cannot tell — offline, no
+// backend, an old database without the RPC. A network hiccup must never throw a
+// player out of their own run.
+export async function isSessionValid() {
+  if (!navigator.onLine) return true;
+  const client = await loadClient();
+  if (!client) return true;
+  const { data, error } = await client.rpc("session_valid", { p_device: deviceId() });
+  if (error) return true;
+  return data !== false;
+}
+
 export async function signUp({ username, password }) {
   const client = await loadClient();
   if (!client) return { ok: false, error: notConfigured() };
@@ -74,6 +110,7 @@ export async function signUp({ username, password }) {
     password,
     options: { data: { username: username.trim() } }, // original casing -> profile
   });
+  if (!error && data?.session) await claimSession();
   return { ok: !error, error, user: data?.user ?? null, session: data?.session ?? null };
 }
 
@@ -84,6 +121,7 @@ export async function signIn({ username, password }) {
     email: usernameToEmail(username),
     password,
   });
+  if (!error) await claimSession(); // this device now owns the account
   return { ok: !error, error, user: data?.user ?? null };
 }
 

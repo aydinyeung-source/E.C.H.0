@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.29.0";
+const VERSION = "v2.30.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -1045,6 +1045,20 @@ async function syncOfflineScores() {
 }
 
 window.addEventListener("online", syncOfflineScores);
+
+// --- Kicked out (the account was claimed by another device) ------------------
+// The session is already gone by the time this fires, so there is nothing to
+// submit — a score RPC would just be rejected. End the run, drop the pointer
+// lock, and put them back on the home screen where the "signed out" message is.
+Menu.onSessionRevoked = () => {
+  if (!playing && !dead) return;
+  dead = false;
+  setPlaying(false);
+  if (deviceMode === "pc" && document.pointerLockElement === canvas) document.exitPointerLock();
+  gameOverOverlay.classList.add("hidden");
+  pauseOverlay.classList.add("hidden");
+  startOverlay.classList.remove("hidden");
+};
 
 // --- Boot -------------------------------------------------------------------
 versionTag.textContent = VERSION;

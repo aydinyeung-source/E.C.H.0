@@ -22,8 +22,8 @@ import { installReveal } from "./reveal.js";
 //               with ~14% burnt out for uncanny gaps in the ceiling grid)
 // -----------------------------------------------------------------------------
 
-const CELL = 6;          // cell size / hallway width (world units)
-const WALL_H = 3.2;      // wall + ceiling height (low and oppressive)
+export const CELL = 6;   // cell size / hallway width (world units)
+export const WALL_H = 3.2; // wall + ceiling height (low and oppressive)
 const WALL_T = 0.3;      // wall thickness
 // The maze is CARVED, not sprinkled: every chunk starts fully walled and a
 // depth-first search tunnels passages through it. Sprinkling walls onto an open
@@ -93,11 +93,13 @@ const WALL_VARIANT_WEIGHTS = [0.14, 0.16, 0.24, 0.22, 0.16, 0.08];
 let SEED = 0;
 const carveCache = new Map();    // chunk key -> Set of edges the maze tunnelled
 const cellOpenCache = new Map(); // cell key -> Set of edges forced open (or null)
+const roomCache = new Map();     // chunk key -> safe-room descriptor (or null)
 
 export function setWorldSeed(seed) {
   SEED = seed >>> 0;
   carveCache.clear(); // layouts depend on the seed
   cellOpenCache.clear();
+  roomCache.clear();
 }
 
 // --- Procedural textures ----------------------------------------------------
@@ -326,6 +328,13 @@ function cellOpenings(i, j) {
 }
 
 function wallPresent(type, i, j) {
+  // A safe room's shell overrides the maze entirely — the carver may not tunnel
+  // through it and the dead-end fixer may not knock it out. This check comes
+  // FIRST for exactly that reason.
+  const room = roomEdge(type, i, j);
+  if (room === "solid") return true;
+  if (room) return false; // "open" (inside the room) or "door" (the door fills it)
+
   if (!rawWall(type, i, j)) return false;
   const id = type + ":" + i + ":" + j;
   // Each edge borders two cells; if EITHER of them needs this edge as one of its
@@ -340,6 +349,150 @@ function wallPresent(type, i, j) {
 // Is this wall smashed out into a window? Deterministic per wall.
 function isWindow(type, i, j) {
   return hash2(i, j, type === 0 ? 611 : 711) < WINDOW_CHANCE;
+}
+
+// -----------------------------------------------------------------------------
+// SAFE ROOMS
+//
+// 8% of chunks hold one instead of pure hallway: a sealed 2x2-cell room with a
+// heavy door, a terminal, a locker and some loose planks. The room is part of
+// the MAZE, not a decoration bolted on top — its walls are real walls, so the
+// carver, the collision, the sightlines and the pathfinder all agree about it.
+//
+// NO TWO ADJACENT CHUNKS may both hold one, or you'd get a bunker district. The
+// rule is decided with no global state: a chunk that rolls a room checks its 8
+// neighbours, and if a neighbour ALSO rolled one and outranks it on a hash, this
+// chunk yields. Any two adjacent contenders compare the same two ranks and reach
+// the same verdict, so the result is consistent no matter which chunk you ask
+// first — which matters, because chunks are generated in whatever order you
+// happen to walk.
+//
+// The room sits at cell offset 1..3 inside the 6x6 chunk. That's deliberate: it
+// guarantees every one of its perimeter edges belongs to THIS chunk, so a room
+// can never reach across a chunk border and fight with a neighbour's maze.
+// -----------------------------------------------------------------------------
+const ROOM_CHANCE = 0.08;
+const ROOM_OFF_MIN = 1;
+const ROOM_OFF_MAX = 3;
+
+function roomRolled(cx, cy) {
+  return hash2(cx, cy, 5150) < ROOM_CHANCE;
+}
+
+// Returns the safe-room descriptor for a chunk, or null. Cached.
+export function chunkRoom(cx, cy) {
+  const key = cx + ":" + cy;
+  const cached = roomCache.get(key);
+  if (cached !== undefined) return cached;
+
+  let room = null;
+  if (roomRolled(cx, cy)) {
+    const mine = hashInt(cx, cy, 5151);
+    let beaten = false;
+    for (let dx = -1; dx <= 1 && !beaten; dx++) {
+      for (let dy = -1; dy <= 1 && !beaten; dy++) {
+        if (!dx && !dy) continue;
+        if (!roomRolled(cx + dx, cy + dy)) continue;
+        const theirs = hashInt(cx + dx, cy + dy, 5151);
+        // Strict rank, with the coordinates themselves as the tie-break, so the
+        // comparison is a total order and never says "we both win".
+        if (theirs > mine || (theirs === mine && (cx + dx) * 31 + (cy + dy) > cx * 31 + cy)) {
+          beaten = true;
+        }
+      }
+    }
+    if (!beaten) room = buildRoomSpec(cx, cy);
+  }
+
+  if (roomCache.size > 400) roomCache.clear();
+  roomCache.set(key, room);
+  return room;
+}
+
+function buildRoomSpec(cx, cy) {
+  const span = ROOM_OFF_MAX - ROOM_OFF_MIN + 1;
+  const a = ROOM_OFF_MIN + Math.floor(hash2(cx, cy, 5152) * span);
+  const b = ROOM_OFF_MIN + Math.floor(hash2(cx, cy, 5153) * span);
+  const ri = cx * CHUNK_CELLS + a; // room's low cell corner, in global cells
+  const rj = cy * CHUNK_CELLS + b;
+
+  // The serial: the door and its switch share this, and it's the only thing
+  // linking the two. You have to READ it off a switch in the dark and remember
+  // it — this is the memory-navigation half of the loop.
+  const serial = String(1000 + Math.floor(hash2(cx, cy, 5154) * 9000));
+
+  // Every edge on the room's shell. `out` is the cell on the OUTSIDE of it,
+  // which is where a besieging entity will stand.
+  const shell = [
+    { type: 1, i: ri, j: rj, side: "W", out: [ri - 1, rj] },
+    { type: 1, i: ri, j: rj + 1, side: "W", out: [ri - 1, rj + 1] },
+    { type: 1, i: ri + 2, j: rj, side: "E", out: [ri + 2, rj] },
+    { type: 1, i: ri + 2, j: rj + 1, side: "E", out: [ri + 2, rj + 1] },
+    { type: 0, i: ri, j: rj, side: "S", out: [ri, rj - 1] },
+    { type: 0, i: ri + 1, j: rj, side: "S", out: [ri + 1, rj - 1] },
+    { type: 0, i: ri, j: rj + 2, side: "N", out: [ri, rj + 2] },
+    { type: 0, i: ri + 1, j: rj + 2, side: "N", out: [ri + 1, rj + 2] },
+  ];
+  const door = shell[Math.floor(hash2(cx, cy, 5155) * shell.length)];
+
+  // The four edges strictly INSIDE the room: these come out, so the 2x2 is one
+  // open space rather than four cells.
+  const interior = new Set([
+    "1:" + (ri + 1) + ":" + rj,
+    "1:" + (ri + 1) + ":" + (rj + 1),
+    "0:" + ri + ":" + (rj + 1),
+    "0:" + (ri + 1) + ":" + (rj + 1),
+  ]);
+
+  const doorId = door.type + ":" + door.i + ":" + door.j;
+  const perimeter = new Set(shell.map((e) => e.type + ":" + e.i + ":" + e.j));
+  perimeter.delete(doorId); // the doorway is a hole in the shell; the door fills it
+
+  // The KeySwitch lives OUT in the hallways, 3-5 cells away. You have to leave,
+  // find it, read the serial and come back.
+  const ang = hash2(cx, cy, 5156) * Math.PI * 2;
+  const dist = 3 + Math.floor(hash2(cx, cy, 5157) * 3);
+  const switchCell = [
+    ri + Math.round(Math.cos(ang) * dist),
+    rj + Math.round(Math.sin(ang) * dist),
+  ];
+
+  const doorPos =
+    door.type === 0
+      ? { x: (door.i + 0.5) * CELL, z: door.j * CELL }
+      : { x: door.i * CELL, z: (door.j + 0.5) * CELL };
+
+  return {
+    key: cx + ":" + cy,
+    cx, cy, ri, rj, serial,
+    door: { ...door, id: doorId, x: doorPos.x, z: doorPos.z, horiz: door.type === 0 },
+    // Where a besieger stands: the middle of the cell on the far side of the door.
+    outside: { x: (door.out[0] + 0.5) * CELL, z: (door.out[1] + 0.5) * CELL },
+    interior,
+    perimeter,
+    switchCell,
+    minX: ri * CELL, maxX: (ri + 2) * CELL,
+    minZ: rj * CELL, maxZ: (rj + 2) * CELL,
+    cxWorld: (ri + 1) * CELL,
+    czWorld: (rj + 1) * CELL,
+  };
+}
+
+// What, if anything, does a safe room say about this edge?
+//   "open"  - inside the room; no wall
+//   "solid" - the room's shell; an unbreakable wall the maze may not touch
+//   "door"  - the doorway; no maze wall, the door object fills it
+function roomEdge(type, i, j) {
+  const cells = type === 0 ? [[i, j], [i, j - 1]] : [[i, j], [i - 1, j]];
+  const id = type + ":" + i + ":" + j;
+  for (const [ci, cj] of cells) {
+    const r = chunkRoom(Math.floor(ci / CHUNK_CELLS), Math.floor(cj / CHUNK_CELLS));
+    if (!r) continue;
+    if (r.door.id === id) return "door";
+    if (r.perimeter.has(id)) return "solid";
+    if (r.interior.has(id)) return "open";
+  }
+  return null;
 }
 
 // What loot is lying in this chunk. Deterministic (and seeded), so the daily
@@ -367,6 +520,11 @@ export function chunkItems(cx, cy) {
   return items;
 }
 
+// Exposed so the safe rooms can find a real wall to bolt their KeySwitch onto.
+export function isWall(type, i, j) {
+  return wallPresent(type, i, j);
+}
+
 // Deterministic per-wall texture variant (weighted), so adjacent walls differ.
 function wallVariant(type, i, j) {
   let r = hash2(i, j, type === 0 ? 313 : 414);
@@ -382,6 +540,16 @@ export class World {
     this.scene = scene;
     this.chunks = new Map();               // "cx:cy" -> { group, bounds }
     this.playerChunk = { cx: NaN, cy: NaN };
+
+    // Collision that CHANGES at runtime — currently just safe-room doors, which
+    // open, shut and get smashed off their hinges. The per-chunk `bounds` are
+    // baked at build time and can't express that, so the safe rooms keep their
+    // live boxes here and collide()/segmentBlocked() consult both.
+    this.extraBounds = [];
+    // An extra veto on the entity pathfinder: (type,i,j) => true means "you may
+    // not walk through this edge right now". A shut door uses it so besiegers
+    // route to the OUTSIDE of the room instead of strolling in.
+    this.pathGate = null;
 
     // Shared geometry/materials keep each chunk lightweight to build and drop.
     this.boxGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -658,7 +826,17 @@ export class World {
         [cur.i, cur.j + 1, !wallPresent(0, cur.i, cur.j + 1)],
         [cur.i, cur.j - 1, !wallPresent(0, cur.i, cur.j)],
       ];
-      for (const [ni, nj, passable] of steps) {
+      const gate = this.pathGate;
+      const steps2 = gate
+        ? [
+            [cur.i + 1, cur.j, steps[0][2] && !gate(1, cur.i + 1, cur.j)],
+            [cur.i - 1, cur.j, steps[1][2] && !gate(1, cur.i, cur.j)],
+            [cur.i, cur.j + 1, steps[2][2] && !gate(0, cur.i, cur.j + 1)],
+            [cur.i, cur.j - 1, steps[3][2] && !gate(0, cur.i, cur.j)],
+          ]
+        : steps;
+
+      for (const [ni, nj, passable] of steps2) {
         if (!passable) continue;
         const g = cur.g + 1;
         const k = key(ni, nj);
@@ -679,40 +857,13 @@ export class World {
     const dz = z2 - z1;
     for (const chunk of this.chunks.values()) {
       for (const w of chunk.bounds) {
-        // A smashed window is a HOLE: you can see, be seen, and be heard through
-        // it. It only stops bodies, not light or sound.
-        if (w.entityOnly) continue;
-
-        let tmin = 0;
-        let tmax = 1;
-        let hit = true;
-
-        if (Math.abs(dx) < 1e-9) {
-          if (x1 < w.minX || x1 > w.maxX) hit = false;
-        } else {
-          let t1 = (w.minX - x1) / dx;
-          let t2 = (w.maxX - x1) / dx;
-          if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
-          tmin = Math.max(tmin, t1);
-          tmax = Math.min(tmax, t2);
-          if (tmin > tmax) hit = false;
-        }
-
-        if (hit) {
-          if (Math.abs(dz) < 1e-9) {
-            if (z1 < w.minZ || z1 > w.maxZ) hit = false;
-          } else {
-            let t1 = (w.minZ - z1) / dz;
-            let t2 = (w.maxZ - z1) / dz;
-            if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
-            tmin = Math.max(tmin, t1);
-            tmax = Math.min(tmax, t2);
-            if (tmin > tmax) hit = false;
-          }
-        }
-
-        if (hit) return true;
+        if (segHitsBox(x1, z1, dx, dz, w)) return true;
       }
+    }
+    // Doors: a shut one blocks sight like any wall; an open or smashed one has
+    // no box here at all, so you can be seen straight through the doorway.
+    for (const w of this.extraBounds) {
+      if (segHitsBox(x1, z1, dx, dz, w)) return true;
     }
     return false;
   }
@@ -728,42 +879,87 @@ export class World {
   // player calls this with true and slips through the gap; entities call it with
   // false (the default) and the gap stops them dead.
   collide(pos, radius, passWindows = false) {
-    const r2 = radius * radius;
     for (let iter = 0; iter < 4; iter++) {
       let overlapped = false;
       for (const chunk of this.chunks.values()) {
         for (const w of chunk.bounds) {
-          if (passWindows && w.entityOnly) continue; // squeeze through the window
-          const nx = Math.max(w.minX, Math.min(pos.x, w.maxX));
-          const nz = Math.max(w.minZ, Math.min(pos.z, w.maxZ));
-          const dx = pos.x - nx;
-          const dz = pos.z - nz;
-          const d2 = dx * dx + dz * dz;
-          if (d2 >= r2) continue;
-          overlapped = true;
-
-          if (d2 > 1e-6) {
-            const d = Math.sqrt(d2);
-            const push = (radius - d) / d;
-            pos.x += dx * push;
-            pos.z += dz * push;
-          } else {
-            // Dead centre inside the box: the push direction is numerically
-            // meaningless there, so eject along the SHALLOWEST axis instead.
-            // (The old code just skipped this case, leaving you stuck inside.)
-            const left = pos.x - w.minX;
-            const right = w.maxX - pos.x;
-            const back = pos.z - w.minZ;
-            const front = w.maxZ - pos.z;
-            const m = Math.min(left, right, back, front);
-            if (m === left) pos.x = w.minX - radius;
-            else if (m === right) pos.x = w.maxX + radius;
-            else if (m === back) pos.z = w.minZ - radius;
-            else pos.z = w.maxZ + radius;
-          }
+          if (pushOutOfBox(pos, radius, w, passWindows)) overlapped = true;
         }
+      }
+      for (const w of this.extraBounds) {
+        if (pushOutOfBox(pos, radius, w, passWindows)) overlapped = true;
       }
       if (!overlapped) return; // settled
     }
   }
+}
+
+// Slab test: does the segment (x1,z1)+(dx,dz) cross this box on the XZ plane?
+// A smashed window (or an open doorway's entity ward) is a HOLE: you can see, be
+// seen and be heard through it. It only stops bodies, not light or sound.
+function segHitsBox(x1, z1, dx, dz, w) {
+  if (w.entityOnly) return false;
+
+  let tmin = 0;
+  let tmax = 1;
+
+  if (Math.abs(dx) < 1e-9) {
+    if (x1 < w.minX || x1 > w.maxX) return false;
+  } else {
+    let t1 = (w.minX - x1) / dx;
+    let t2 = (w.maxX - x1) / dx;
+    if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+
+  if (Math.abs(dz) < 1e-9) {
+    if (z1 < w.minZ || z1 > w.maxZ) return false;
+  } else {
+    let t1 = (w.minZ - z1) / dz;
+    let t2 = (w.maxZ - z1) / dz;
+    if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
+    tmin = Math.max(tmin, t1);
+    tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+
+  return true;
+}
+
+// Push a circle out of one box. Returns true if it was overlapping.
+// `passWindows` is what makes a broken window (and an open safe-room doorway) a
+// player-only route: the player passes true and slips through; entities pass
+// false and the gap stops them dead.
+function pushOutOfBox(pos, radius, w, passWindows) {
+  if (passWindows && w.entityOnly) return false;
+
+  const nx = Math.max(w.minX, Math.min(pos.x, w.maxX));
+  const nz = Math.max(w.minZ, Math.min(pos.z, w.maxZ));
+  const dx = pos.x - nx;
+  const dz = pos.z - nz;
+  const d2 = dx * dx + dz * dz;
+  if (d2 >= radius * radius) return false;
+
+  if (d2 > 1e-6) {
+    const d = Math.sqrt(d2);
+    const push = (radius - d) / d;
+    pos.x += dx * push;
+    pos.z += dz * push;
+  } else {
+    // Dead centre inside the box: the push direction is numerically meaningless
+    // there, so eject along the SHALLOWEST axis instead. (Skipping this case is
+    // what used to leave you stuck inside a wall.)
+    const left = pos.x - w.minX;
+    const right = w.maxX - pos.x;
+    const back = pos.z - w.minZ;
+    const front = w.maxZ - pos.z;
+    const m = Math.min(left, right, back, front);
+    if (m === left) pos.x = w.minX - radius;
+    else if (m === right) pos.x = w.maxX + radius;
+    else if (m === back) pos.z = w.minZ - radius;
+    else pos.z = w.maxZ + radius;
+  }
+  return true;
 }

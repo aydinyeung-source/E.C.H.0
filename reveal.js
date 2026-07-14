@@ -28,7 +28,13 @@ export const revealUniforms = {
   uEchoColor: { value: new THREE.Color(0x39ff14) }, // neon green
 };
 
-export function installReveal(material) {
+// `echoColor` (optional) gives THIS material its own ring colour instead of the
+// shared neon green. The wave data still comes from the shared uniforms — only
+// the tint is private — which is how a safe-room door and its switch come back
+// as a distinct bright echo, unmistakable among a corridor of green.
+export function installReveal(material, echoColor = null) {
+  const tint = echoColor === null ? null : { value: new THREE.Color(echoColor) };
+
   material.onBeforeCompile = (shader) => {
     // Share the SAME uniform objects with every patched material so a single
     // per-frame update (in sonar.js) drives them all.
@@ -37,7 +43,7 @@ export function installReveal(material) {
       uWaveOn: revealUniforms.uWaveOn,
       uWaveSpeed: revealUniforms.uWaveSpeed,
       uGlowTime: revealUniforms.uGlowTime,
-      uEchoColor: revealUniforms.uEchoColor,
+      uEchoColor: tint || revealUniforms.uEchoColor,
     });
 
     // Vertex: expose the fragment's world position (instancing-aware).

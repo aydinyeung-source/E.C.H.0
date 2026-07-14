@@ -40,6 +40,7 @@ export class Player {
     this.running = false; // set by the game (q + energy); uses RUN_SPEED when true
     this.moving = false;  // did the player actually move this frame (for energy drain)
     this.enabled = false; // the game drives this: true only while actually playing
+    this.lookLocked = false; // true while using a terminal — you can't look around
     this.boost = 1;       // speed multiplier (a crucifix grants one briefly)
     this.touchFwd = 0;    // analog move input from the mobile joystick (-1..1)
     this.touchStrafe = 0;
@@ -58,6 +59,7 @@ export class Player {
     this.keys.clear();
     this.running = false;
     this.moving = false;
+    this.lookLocked = false;
     this.boost = 1;
     this.touchFwd = 0;
     this.touchStrafe = 0;
@@ -73,6 +75,7 @@ export class Player {
   // Turn the camera. Used by pointer-lock mouse movement (PC) and by touch drags
   // on the right half of the screen (mobile).
   look(dx, dy) {
+    if (this.lookLocked) return; // camera is bolted to a terminal screen
     this.yaw -= dx * this.sensitivity;
     this.pitch -= dy * this.sensitivity;
     this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));

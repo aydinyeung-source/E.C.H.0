@@ -83,6 +83,14 @@ const INVESTIGATE_TIME = 9;         // seconds it spends looking into a noise
 const CHASE_PATIENCE = 18;
 const GIVE_UP_TIME = 30;
 
+// A siege runs LONGER than an ordinary chase before they lose heart. They know
+// exactly where you are and they know you have to come out, so they're prepared
+// to work at it — but not forever. Wait one out and you'll live; you just won't
+// have the terminal's reward, and the door will be in pieces.
+const SIEGE_PATIENCE = 55;
+const SIEGE_STAND_OFF = 1.7; // how close to the door they get before hammering
+const BANG_INTERVAL = 0.55;  // seconds between blows
+
 const KILL_RADIUS = 0.9;
 const ENTITY_RADIUS = 0.35;
 const REPATH_INTERVAL = 0.5;
@@ -123,6 +131,7 @@ export class EntitySystem {
     this.entities = [];
     this.nearest = Infinity;
     this.placeTimer = PLACE_COOLDOWN; // no new arrivals for the first stretch
+    this.siege = null;                // {x,z} outside a safe-room door, or null
 
     // A FIXED pool of eye lights, created once and never added/removed. Three.js
     // bakes the light count into every shader it compiles, so adding or removing
@@ -151,6 +160,7 @@ export class EntitySystem {
     this.entities = [];
     this.nearest = Infinity;
     this.placeTimer = PLACE_COOLDOWN;
+    this.siege = null;
     for (const light of this.eyeLights) light.intensity = 0;
     if (playerPos && world) {
       for (let i = 0; i < BASE_POP; i++) this._place(playerPos, world);
@@ -173,16 +183,20 @@ export class EntitySystem {
     }
   }
 
-  // The sonar: an unfamiliar sound. Anything within earshot breaks off and goes
-  // to LOOK — but this only tells it where the NOISE was, not where you are. If
-  // you're gone when it arrives, it finds nothing and drifts back to wandering.
-  // It will only actually hunt you if it SEES you.
-  hearSonar(x, z) {
+  // A noise. Anything within earshot breaks off and goes to LOOK — but this only
+  // tells it where the NOISE was, not where you are. If you're gone when it
+  // arrives, it finds nothing and drifts back to wandering. It will only actually
+  // hunt you if it SEES you.
+  //
+  // The sonar is the loud one. Hammering planks into a door and typing at a
+  // terminal are quieter, and pass a smaller radius — but they are still noise,
+  // and in here noise is the only currency that matters.
+  hearNoise(x, z, radius = HEAR_RADIUS) {
     let heard = 0;
     for (const e of this.entities) {
-      if (e.blindTimer > 0) continue;                           // deafened too
-      if (e.giveUpTimer > 0) continue;                          // it doesn't care any more
-      if (Math.hypot(e.x - x, e.z - z) > HEAR_RADIUS) continue; // too far to carry
+      if (e.blindTimer > 0) continue;                      // deafened too
+      if (e.giveUpTimer > 0) continue;                     // it doesn't care any more
+      if (Math.hypot(e.x - x, e.z - z) > radius) continue; // too far to carry
       e.nx = x; // where the noise came from
       e.nz = z;
       e.investigateTimer = INVESTIGATE_TIME;
@@ -191,6 +205,59 @@ export class EntitySystem {
       heard++;
     }
     return heard;
+  }
+
+  hearSonar(x, z) {
+    return this.hearNoise(x, z, HEAR_RADIUS);
+  }
+
+  // The safe-room siege. While you're sealed in, anything that already knows
+  // something is up converges on the OUTSIDE of the door and stays there working
+  // on it. Pass null to call the siege off.
+  //
+  // Note they don't need to see you to keep at it — they watched you go in, and
+  // the door is the only way through. This is the one situation where they'll
+  // camp a spot indefinitely, which is what makes the room a trap as much as a
+  // refuge.
+  setSiege(point) {
+    this.siege = point || null;
+    if (!point) {
+      for (const e of this.entities) e.sieging = false;
+    }
+  }
+
+  // The terminal task completed: the noise stops, the lights come up, and they
+  // scatter. Everything nearby gives up, forgets you and walks away — it is the
+  // reward for finishing under pressure.
+  disperse(x, z, radius, world) {
+    let sent = 0;
+    for (const e of this.entities) {
+      if (Math.hypot(e.x - x, e.z - z) > radius) continue;
+      e.sieging = false;
+      this._giveUp(e, { x, z }, world);
+      e.giveUpTimer = GIVE_UP_TIME * 1.5; // a long walk back to their own business
+      sent++;
+    }
+    return sent;
+  }
+
+  // The halon vent: everything caught in the gas is blinded where it stands.
+  // Same helpless state the crucifix causes, but local — this is a room-clearing
+  // tool, not a global reset.
+  blindNear(x, z, radius, duration) {
+    let hit = 0;
+    for (const e of this.entities) {
+      if (Math.hypot(e.x - x, e.z - z) > radius) continue;
+      e.blindTimer = Math.max(e.blindTimer, duration);
+      e.huntTimer = 0;
+      e.investigateTimer = 0;
+      e.enrageTimer = 0;
+      e.sieging = false;
+      e.chaseTime = 0;
+      e.path = null;
+      hit++;
+    }
+    return hit;
   }
 
   // Crucifix: BLINDS EVERY entity for `duration`. A blinded one can't see, hear,
@@ -289,6 +356,8 @@ export class EntitySystem {
       enrageTimer: 0,
       chaseTime: 0,        // how long this pursuit has been going on and failing
       giveUpTimer: 0,      // >0 while it has lost interest and is ignoring you
+      sieging: false,      // camped on a safe-room door, trying to get through it
+      bangTimer: 0,        // cadence of its blows against the door
       path: null,
       pathTimer: 0,
       wanderPath: null,    // its own aimless route
@@ -433,6 +502,44 @@ export class EntitySystem {
         continue;
       }
       nearest = Math.min(nearest, dPlayer);
+
+      // --- Besieging a safe room ---
+      // You sealed yourself in. Anything that was already onto you converges on
+      // the far side of the door and goes to work on it. It cannot see you and
+      // does not need to: it watched you go in, and there's one way out.
+      if (this.siege) {
+        const aware =
+          e.sieging || e.huntTimer > 0 || e.investigateTimer > 0 || e.enrageTimer > 0;
+        if (aware) {
+          e.sieging = true;
+          e.canSee = false; // the door is between you; nothing has eyes on you
+          e.chaseTime += dt;
+          if (e.chaseTime >= SIEGE_PATIENCE) {
+            this._giveUp(e, playerPos, world); // it can't get through. it leaves.
+            continue;
+          }
+
+          const dDoor = Math.hypot(this.siege.x - e.x, this.siege.z - e.z);
+          if (dDoor > SIEGE_STAND_OFF) {
+            this._goTo(e, dt, world, this.siege.x, this.siege.z, INVESTIGATE_SPEED);
+          } else {
+            // At the door. Face it and hammer. The lunge is what you see through
+            // the gap under it, and what the durability drain is metered against
+            // (game side: it counts who is standing here).
+            e.group.rotation.y = Math.atan2(playerPos.x - e.x, playerPos.z - e.z);
+            e.bangTimer -= dt;
+            if (e.bangTimer <= 0) {
+              e.bangTimer = BANG_INTERVAL;
+              e.banging = true; // one blow this frame — the game plays the hit
+            }
+            const lunge = Math.max(0, e.bangTimer / BANG_INTERVAL - 0.7) * 0.6;
+            e.group.position.set(e.x, lunge, e.z);
+          }
+          continue;
+        }
+      } else if (e.sieging) {
+        e.sieging = false; // siege called off (you left, or the door came down)
+      }
 
       // --- Can it SEE you? That is the only thing that starts a hunt. ---
       // Sight is bounded by SIGHT_RANGE — it's pitch black down here, they can't

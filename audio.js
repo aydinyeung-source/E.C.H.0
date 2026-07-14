@@ -440,6 +440,158 @@ export class AudioSystem {
     osc.stop(t + 0.32);
   }
 
+  // --- Safe room ------------------------------------------------------------
+
+  // A burst of filtered noise. The workhorse behind most of the metal and wood
+  // sounds below: impacts are mostly noise with a filter shaping the character.
+  _noiseBurst(dur, type, freq, q, vol, at = 0) {
+    const t = this.ctx.currentTime + at;
+    const buf = this.ctx.createBuffer(1, Math.max(1, Math.floor(this.ctx.sampleRate * dur)), this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      const decay = 1 - i / data.length;
+      data[i] = (Math.random() * 2 - 1) * decay * decay;
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const f = this.ctx.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = freq;
+    f.Q.value = q;
+    const g = this.ctx.createGain();
+    g.gain.value = vol;
+    src.connect(f);
+    f.connect(g);
+    g.connect(this._out());
+    src.start(t);
+    src.stop(t + dur);
+    return g;
+  }
+
+  _tone(freq, to, dur, type, vol, at = 0) {
+    const t = this.ctx.currentTime + at;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (to !== freq) osc.frequency.exponentialRampToValueAtTime(Math.max(1, to), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.001, vol), t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g);
+    g.connect(this._out());
+    osc.start(t);
+    osc.stop(t + dur + 0.05);
+  }
+
+  // Shouldering a locked door: a dead, heavy CLUNK with no give in it. The sound
+  // of a thing that is not going to open.
+  doorThud() {
+    if (!this.ctx) return;
+    this._tone(90, 42, 0.16, "sine", 0.9);
+    this._noiseBurst(0.1, "lowpass", 320, 1, 0.5);
+  }
+
+  doorOpen() {
+    if (!this.ctx) return;
+    this._noiseBurst(0.55, "bandpass", 700, 0.7, 0.35); // hinges grinding
+    this._tone(150, 90, 0.4, "sawtooth", 0.12);
+  }
+
+  doorShut() {
+    if (!this.ctx) return;
+    this._tone(120, 50, 0.22, "sine", 0.8);
+    this._noiseBurst(0.14, "highpass", 2200, 0.8, 0.3); // the latch catching
+  }
+
+  // A blow against the door. `inside` is you, sealed in, with it happening a metre
+  // from your head — vicious and immediate. From outside it's a duller, distant
+  // thing.
+  doorHit(inside) {
+    if (!this.ctx) return;
+    const v = inside ? 1 : 0.35;
+    this._tone(70 + Math.random() * 20, 38, 0.2, "sine", 0.85 * v);
+    this._noiseBurst(0.16, "lowpass", inside ? 1400 : 500, 1, 0.45 * v);
+    // The scratching underneath the banging is the part that gets to you.
+    this._noiseBurst(0.3, "bandpass", 2600 + Math.random() * 900, 3, 0.16 * v, 0.06);
+  }
+
+  doorBreach() {
+    if (!this.ctx) return;
+    this._tone(160, 30, 1.1, "sawtooth", 0.5);
+    this._noiseBurst(0.9, "lowpass", 900, 0.6, 0.75);
+    this._noiseBurst(0.6, "bandpass", 3200, 2, 0.3, 0.05); // splintering
+  }
+
+  // Nailing a plank across the door: three fast, satisfying hammer blows.
+  hammer() {
+    if (!this.ctx) return;
+    for (let k = 0; k < 3; k++) {
+      const at = k * 0.13;
+      this._tone(260, 120, 0.08, "square", 0.35, at);
+      this._noiseBurst(0.07, "highpass", 3000, 0.7, 0.4, at);
+    }
+  }
+
+  switchPull() {
+    if (!this.ctx) return;
+    this._noiseBurst(0.09, "highpass", 2600, 0.8, 0.5);
+    this._tone(420, 180, 0.14, "square", 0.3, 0.03); // the mechanism throwing over
+  }
+
+  termKey() {
+    if (!this.ctx) return;
+    this._tone(880, 880, 0.05, "square", 0.14);
+  }
+
+  termError() {
+    if (!this.ctx) return;
+    this._tone(180, 110, 0.3, "sawtooth", 0.28);
+  }
+
+  // The task lands: a clean ascending chime. In a game with no other good news,
+  // this is the only sound that means you won something.
+  termDone() {
+    if (!this.ctx) return;
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, k) => {
+      this._tone(f, f, 0.9, "triangle", 0.3, k * 0.09);
+    });
+  }
+
+  // The halon vent. A colossal hiss under a two-tone alarm that does not stop for
+  // five seconds. It's meant to be genuinely unpleasant — it's a last resort, and
+  // it should feel like one.
+  halon() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const dur = 5;
+
+    const buf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * dur), this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 2000;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.55, t + 0.08); // the burst
+    g.gain.exponentialRampToValueAtTime(0.12, t + 1.6);  // then a steady bleed
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(hp);
+    hp.connect(g);
+    g.connect(this._out());
+    src.start(t);
+    src.stop(t + dur);
+
+    // Alarm: an alternating two-tone, once every half second for the duration.
+    for (let k = 0; k < 10; k++) {
+      const f = k % 2 ? 620 : 880;
+      this._tone(f, f, 0.34, "square", 0.3, k * 0.5);
+    }
+  }
+
   // Loud, harsh stinger for the jumpscare.
   jumpscare() {
     if (!this.ctx) return;

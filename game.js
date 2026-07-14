@@ -13,10 +13,11 @@ import { EntitySystem } from "./entities.js";
 import { AudioSystem } from "./audio.js";
 import { Pickups, MEAT_ENERGY } from "./pickups.js";
 import { Radar } from "./radar.js";
+import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.27.0";
+const VERSION = "v3.0.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -52,6 +53,17 @@ const torchBar = document.getElementById("torchBar");
 const torchFill = document.getElementById("torchFill");
 const settingsToggle = document.getElementById("settingsToggle");
 const settingsBody = document.getElementById("settingsBody");
+const mcAct = document.getElementById("mcAct");
+const doorBar = document.getElementById("doorBar");
+const doorFill = document.getElementById("doorFill");
+const usePrompt = document.getElementById("usePrompt");
+const halonOverlay = document.getElementById("halon");
+const terminalOverlay = document.getElementById("terminalOverlay");
+const termProgress = document.getElementById("termProgress");
+const termCode = document.getElementById("termCode");
+const termTyped = document.getElementById("termTyped");
+const termWarn = document.getElementById("termWarn");
+const termPad = document.getElementById("termPad");
 
 // Settings is a tab: the header button opens/closes the panel body.
 settingsToggle.addEventListener("click", () => {
@@ -83,6 +95,57 @@ const entities = new EntitySystem(scene);
 const audio = new AudioSystem();
 const pickups = new Pickups(scene);
 const radar = new Radar(radarCanvas);
+
+// The safe rooms need to reach into the hotbar (planks in, planks out) and to
+// throw screen effects, so they get two small adapters rather than a reference to
+// the whole game. `give` returns false when the pack is full, which is what makes
+// a plank stay lying on the floor instead of evaporating.
+const inv = {
+  give(type, n = 1) {
+    if (capacityFor(type) < n) return false;
+    addItem(type, n);
+    return true;
+  },
+  has(type) {
+    return hasItem(type);
+  },
+  take(type) {
+    for (const s of hotbar) {
+      if (s.type === type && s.count > 0) {
+        s.count--;
+        if (s.count === 0) s.type = null;
+        renderHotbar();
+        return true;
+      }
+    }
+    return false;
+  },
+};
+
+const fx = {
+  halon(seconds) {
+    halonOverlay.classList.remove("hidden");
+    panicTimer = seconds;
+    announce("HALON DISCHARGE · RUN", seconds);
+  },
+  taskDone(reward) {
+    announce(`TASK COMPLETE · ${reward.toUpperCase()} IN THE LOCKER`, 4);
+  },
+  breach() {
+    announce("THE DOOR IS GONE", 3.5);
+  },
+};
+
+const saferooms = new SafeRooms(scene, world, audio, entities, inv, fx);
+
+// A transient line of text in the prompt slot — it outranks the contextual [E]
+// prompt while it lives.
+let announceText = "";
+let announceTimer = 0;
+function announce(text, seconds) {
+  announceText = text;
+  announceTimer = seconds;
+}
 
 let dead = false;    // true once an entity has caught the player
 let heartTimer = 0;  // countdown to the next heartbeat (tempo scales with proximity)
@@ -126,15 +189,24 @@ document.addEventListener("pointerlockerror", () => {
 
 function setPlaying(v) {
   playing = v;
-  player.enabled = v;
   // Room tone runs only while you're actually in there.
   if (v) audio.startAmbience();
   else audio.stopAmbience();
   if (!v) {
+    // Close the terminal FIRST: it hands movement back to the player, and we're
+    // about to take it away again. The other order leaves you paused but walking.
+    saferooms.closeTerminal(player);
+    renderTerminal();
     player.touchFwd = 0;
     player.touchStrafe = 0;
+    torchOn = false; // don't leave the beam burning on a menu
+    interactHeld = false;
+    panicTimer = 0;
+    doorBar.classList.add("hidden");
+    usePrompt.classList.add("hidden");
+    halonOverlay.classList.add("hidden");
   }
-  if (!v) torchOn = false; // don't leave the beam burning on a menu
+  player.enabled = v;
   energyBar.classList.toggle("hidden", !v);
   hotbarEl.classList.toggle("hidden", !v);
   torchBar.classList.toggle("hidden", !v);
@@ -156,6 +228,13 @@ const SONAR_COST = 4;  // energy per sonar reveal
 const WARD_TIME = 7;        // seconds of blindness + speed
 const WARD_SPEED_BOOST = 1.45;
 let boostTimer = 0;
+
+// The halon vent (safe-room panic button). While the gas is in the air you get a
+// hard sprint that ignores your energy entirely — you are running on pure terror
+// and you cannot see a thing. Five seconds to get out through a room full of
+// stunned bodies.
+const PANIC_SPEED_BOOST = 1.6;
+let panicTimer = 0;
 
 // Torch: shows you a slice of what's ahead — but shine it at something and you
 // ENRAGE it.
@@ -243,6 +322,7 @@ function renderHotbar() {
     icon.classList.toggle("meat", filled && item.type === "meat");
     icon.classList.toggle("crucifix", filled && item.type === "crucifix");
     icon.classList.toggle("torch", filled && item.type === "torch");
+    icon.classList.toggle("plank", filled && item.type === "plank");
     el.querySelector(".slot-count").textContent = filled && item.count > 1 ? item.count : "";
   }
 }
@@ -342,6 +422,57 @@ function updateRunButton() {
   mcRun.classList.toggle("active", runMode);
 }
 
+// --- Interaction (E / the mobile ACT button) --------------------------------
+// One key does everything a safe room offers, because the game tells you what it
+// will do before you press it. Holding it is a separate thing: that's how you
+// nail a plank across the door.
+let interactHeld = false;
+
+function interactPress() {
+  if (!playing || dead) return;
+  if (saferooms.terminal) {
+    saferooms.closeTerminal(player); // E backs you out of the screen
+    return;
+  }
+  saferooms.press(player, world);
+}
+
+// --- The terminal keypad (touch) --------------------------------------------
+// On PC the number row does the same job, so the pointer never has to leave the
+// lock. This grid exists for fingers.
+function buildTermPad() {
+  termPad.innerHTML = "";
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "CLR", "0", "EXIT"];
+  for (const k of keys) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "term-key";
+    b.textContent = k;
+    b.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (k === "EXIT") saferooms.closeTerminal(player);
+      else if (k === "CLR") {
+        if (saferooms.terminal) saferooms.terminal.typed = "";
+      } else {
+        saferooms.typeDigit(k, player, world);
+      }
+      renderTerminal();
+    });
+    termPad.appendChild(b);
+  }
+}
+
+function renderTerminal() {
+  const view = saferooms.terminalView();
+  terminalOverlay.classList.toggle("hidden", !view);
+  if (!view) return;
+  termProgress.textContent = `${view.index} / ${view.total}`;
+  termCode.textContent = view.target;
+  termTyped.textContent = view.typed.padEnd(4, "_");
+  termWarn.classList.toggle("hidden", !view.breached);
+}
+
 // Prime a random world behind the overlay so the scene isn't empty on load.
 setWorldSeed(parseSeed(""));
 world.update(player.pos);
@@ -400,6 +531,10 @@ function startRun(rawSeedText, label, isDaily) {
   torchOn = false;
   torchCharge = 0;
   boostTimer = 0;
+  panicTimer = 0;
+  announceTimer = 0;
+  interactHeld = false;
+  halonOverlay.classList.add("hidden");
   updateRunButton();
   radar.clear();
   audio.init(); // this is called from a click, so audio is allowed to start
@@ -414,6 +549,10 @@ function startRun(rawSeedText, label, isDaily) {
   entities.reset(player.pos, world);
   audio.resetVoices(); // drop spatial voices from the previous run
   pickups.reset(); // loot lives in the chunks now, not in a pool around you
+  // Every door re-locks, every plank comes back, every locker is shut again.
+  saferooms.reset();
+  saferooms.sync(player.pos);
+  renderTerminal();
   seedTag.textContent = (label ? label + " · " : "") + "SEED " + run.seed;
 
   // PC goes through pointer lock (which starts play on lock); mobile starts now.
@@ -542,6 +681,21 @@ function onPress(el, fn) {
 
 onPress(mcPing, () => fireSonar());
 onPress(mcEat, () => useSelected());
+
+// ACT is press-AND-hold: a tap does the contextual action, holding it down boards
+// up a door. pointerup/cancel both have to release it or a lost touch would leave
+// you hammering forever.
+mcAct.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  interactHeld = true;
+  interactPress();
+});
+for (const ev of ["pointerup", "pointercancel", "pointerleave"]) {
+  mcAct.addEventListener(ev, () => {
+    interactHeld = false;
+  });
+}
 onPress(mcRun, () => {
   runMode = !runMode;
   updateRunButton();
@@ -613,8 +767,9 @@ canvas.addEventListener("touchcancel", endTouch);
 // .code ("Space", "KeyE", ...). Look (mouse move) is always button-agnostic.
 const SONAR_KEY = "echo-sonar-key";
 let sonarBinding = localStorage.getItem(SONAR_KEY) || "mouse0";
-// F is now the "eat" key, so migrate anyone who had bound sonar to it.
-if (sonarBinding === "KeyF") {
+// F is the "use item" key and E is now "interact" (switches, terminals, boarding
+// up a door), so migrate anyone who had sonar bound to either of them.
+if (sonarBinding === "KeyF" || sonarBinding === "KeyE") {
   sonarBinding = "mouse0";
   localStorage.setItem(SONAR_KEY, sonarBinding);
 }
@@ -626,6 +781,7 @@ sonarKeySelect.addEventListener("change", () => {
 
 function fireSonar() {
   if (!playing) return;
+  if (saferooms.terminal) return; // you're nose-to-screen; you can't ping
   sonar.pulse(player.pos);
   radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
   // The sonar itself is SILENT to the player — no ping, no blip. The entities
@@ -648,6 +804,34 @@ canvas.addEventListener("wheel", (e) => {
 }, { passive: false });
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
+
+  // While a terminal is up, the number row IS the keypad — it stops driving the
+  // hotbar, and nothing else in the game responds.
+  if (saferooms.terminal) {
+    if (e.code === "KeyE" || e.code === "Escape") {
+      saferooms.closeTerminal(player);
+      renderTerminal();
+      return;
+    }
+    if (e.code === "Backspace") {
+      saferooms.terminal.typed = "";
+      renderTerminal();
+      return;
+    }
+    if (e.code.startsWith("Digit") || e.code.startsWith("Numpad")) {
+      const d = e.code.replace("Digit", "").replace("Numpad", "");
+      if (/^\d$/.test(d)) {
+        saferooms.typeDigit(d, player, world);
+        renderTerminal();
+      }
+    }
+    return;
+  }
+
+  if (e.code === "KeyE") {
+    interactHeld = true;
+    interactPress();
+  }
   if (sonarBinding === e.code) fireSonar();
   if (e.code === "KeyQ") { // toggle running
     runMode = !runMode;
@@ -659,6 +843,14 @@ window.addEventListener("keydown", (e) => {
     const n = parseInt(e.code.slice(5), 10);
     if (n >= 1 && n <= HOTBAR_SLOTS) selectSlot(n - 1);
   }
+});
+
+window.addEventListener("keyup", (e) => {
+  if (e.code === "KeyE") interactHeld = false;
+});
+// Never leave the interact key stuck down if the window loses focus mid-hold.
+window.addEventListener("blur", () => {
+  interactHeld = false;
 });
 
 window.addEventListener("resize", () => {
@@ -706,6 +898,25 @@ function updateTorch(dt) {
   }
 }
 
+// --- Safe-room HUD ----------------------------------------------------------
+// The door bar and the contextual prompt. A transient announcement ("THE DOOR IS
+// GONE") outranks the prompt while it's alive — at that moment it's the only
+// thing you need to read.
+function updateSafeRoomHud() {
+  const hud = saferooms.hud;
+  doorBar.classList.toggle("hidden", !hud);
+  if (hud) {
+    doorFill.style.width = hud.pct * 100 + "%";
+    doorBar.classList.toggle("under-siege", hud.sieging);
+  }
+
+  const text = announceTimer > 0 ? announceText : saferooms.prompt ? saferooms.prompt.text : "";
+  usePrompt.textContent = text;
+  usePrompt.classList.toggle("hidden", !text);
+
+  renderTerminal();
+}
+
 // --- Distance tracking ------------------------------------------------------
 // "Distance explored" = furthest straight-line distance reached from spawn.
 function updateDistance() {
@@ -723,16 +934,23 @@ function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05); // clamp long frames (tab switch)
   last = now;
 
-  // Crucifix adrenaline: a temporary speed multiplier.
-  if (boostTimer > 0) {
+  // Speed boosts. The halon vent outranks the crucifix — it's the bigger panic.
+  if (panicTimer > 0) {
+    panicTimer -= dt;
+    player.boost = PANIC_SPEED_BOOST;
+    if (panicTimer <= 0) halonOverlay.classList.add("hidden");
+  } else if (boostTimer > 0) {
     boostTimer -= dt;
     player.boost = WARD_SPEED_BOOST;
   } else {
     player.boost = 1;
   }
 
-  // Apply run intent before moving: you can only run with energy to spare.
-  player.running = runMode && energy > 0;
+  if (announceTimer > 0) announceTimer -= dt;
+
+  // Apply run intent before moving: you can only run with energy to spare —
+  // except on halon, where you sprint on adrenaline whether you have it or not.
+  player.running = (runMode && energy > 0) || panicTimer > 0;
   player.update(dt, world);
   audio.updateListener(camera); // 3D listener follows your head every frame
   world.update(player.pos);
@@ -745,8 +963,9 @@ function loop(now) {
   // Entities only hunt while actively playing (and alive).
   if (playing && !dead) {
     // Running drains energy; walking slowly gives it back, so backing off to a
-    // walk is a real recovery option rather than just being slower.
-    if (player.running && player.moving) {
+    // walk is a real recovery option rather than just being slower. The halon
+    // sprint is free — that's the whole point of it.
+    if (player.running && player.moving && panicTimer <= 0) {
       energy = Math.max(0, energy - RUN_DRAIN * dt);
     } else if (player.moving) {
       energy = Math.min(ENERGY_MAX, energy + WALK_REGEN * dt);
@@ -754,6 +973,11 @@ function loop(now) {
 
     updateTorch(dt);
     if (entities.update(dt, player.pos, run.maxDistance, world)) die();
+
+    // Safe rooms: streaming, the door, the siege, the props, the prompts. Runs
+    // AFTER the entities so it sees this frame's blows against the door.
+    saferooms.update(dt, player, interactHeld, world);
+    updateSafeRoomHud();
 
     // Pick up anything within reach that we have room for (used later, on F).
     const taken = pickups.update(player.pos, (type) => capacityFor(type) > 0);
@@ -815,6 +1039,7 @@ window.addEventListener("online", syncOfflineScores);
 versionTag.textContent = VERSION;
 versionLabel.textContent = VERSION;
 buildHotbar();
+buildTermPad();
 Menu.init().then(syncOfflineScores); // wait for the session before replaying
 Menu.refreshLeaderboard(todayUTC());
 requestAnimationFrame(loop);

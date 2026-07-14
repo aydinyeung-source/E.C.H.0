@@ -721,6 +721,233 @@ button.secondary:hover {
   background: #000;
 }
 
+/* ---------------------------------------------------------------------------
+   SAFE ROOMS
+   Everything room-related is CYAN, everywhere: the door's sonar echo, the
+   serial plates, the prompt, the durability bar, the terminal. It's a private
+   colour language — cyan means "man-made, and you can use it" — so it never
+   reads as part of the maze or the entities.
+   --------------------------------------------------------------------------- */
+
+/* Door durability, beside the energy bar. */
+.hud-door {
+  position: fixed;
+  bottom: 16px;
+  left: 210px;
+  z-index: 5;
+  width: 130px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.hud-door-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #1c8fa8, #7fe9ff);
+  box-shadow: 0 0 10px rgba(60, 210, 255, 0.5);
+  transition: width 0.15s linear;
+}
+
+/* Under siege the bar pulses red — you should feel it going. */
+.hud-door.under-siege .hud-door-fill {
+  background: linear-gradient(90deg, #a82424, #ff7a5a);
+  box-shadow: 0 0 12px rgba(255, 80, 60, 0.7);
+  animation: doorPulse 0.5s ease-in-out infinite;
+}
+
+@keyframes doorPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* The contextual [E] prompt, just under the crosshair. */
+.use-prompt {
+  position: fixed;
+  top: 56%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 6px 14px;
+  border: 1px solid rgba(60, 210, 255, 0.5);
+  border-radius: 4px;
+  background: rgba(0, 12, 18, 0.72);
+  color: #9ff0ff;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 8px rgba(60, 210, 255, 0.6);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Halon: a wall of white fog and an alarm you can't ignore. */
+.halon {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.halon-fog {
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(255, 255, 255, 0.85), transparent 55%),
+    radial-gradient(circle at 70% 60%, rgba(230, 245, 255, 0.8), transparent 55%),
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.7), transparent 70%),
+    rgba(240, 250, 255, 0.55);
+  animation: halonRoll 2.4s linear infinite;
+  filter: blur(6px);
+}
+
+@keyframes halonRoll {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-3%, 2%) scale(1.08); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+.halon-alarm {
+  position: absolute;
+  top: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #b00000;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-shadow: 0 0 18px rgba(255, 0, 0, 0.8);
+  animation: halonBlink 0.5s steps(2, end) infinite;
+}
+
+@keyframes halonBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.05; }
+}
+
+/* The terminal. Deliberately fills the view: while it's up you genuinely cannot
+   see the door, which is the entire point of the mechanic. */
+.terminal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 6, 4, 0.88);
+}
+
+.term-screen {
+  width: min(420px, 90vw);
+  padding: 22px;
+  border: 1px solid rgba(28, 255, 143, 0.4);
+  border-radius: 6px;
+  background: rgba(2, 18, 10, 0.95);
+  box-shadow: 0 0 40px rgba(28, 255, 143, 0.18) inset;
+  color: #7dffbe;
+  font-family: "Courier New", monospace;
+  text-align: center;
+}
+
+.term-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  color: rgba(125, 255, 190, 0.6);
+  border-bottom: 1px solid rgba(28, 255, 143, 0.25);
+  padding-bottom: 8px;
+}
+
+.term-line {
+  margin: 14px 0 6px;
+  font-size: 0.66rem;
+  letter-spacing: 0.18em;
+}
+
+.term-code {
+  font-size: 2.6rem;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em; /* letter-spacing pads the right; this re-centres it */
+  color: #d9fff0;
+  text-shadow: 0 0 20px rgba(28, 255, 143, 0.8);
+}
+
+.term-typed {
+  margin-top: 4px;
+  font-size: 1.5rem;
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+  color: #1cff8f;
+  min-height: 1.6rem;
+}
+
+.term-warn {
+  margin: 10px 0 0;
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  color: #ff6a4a;
+  animation: halonBlink 0.8s steps(2, end) infinite;
+}
+
+/* The keypad is for touch. On PC the number row does the same job and you never
+   leave pointer lock. */
+.term-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 16px auto 10px;
+  max-width: 240px;
+}
+
+.term-key {
+  padding: 12px 0;
+  border: 1px solid rgba(28, 255, 143, 0.35);
+  border-radius: 4px;
+  background: rgba(6, 40, 24, 0.9);
+  color: #9dffcd;
+  font-family: inherit;
+  font-size: 1.1rem;
+  touch-action: manipulation;
+}
+
+.term-key:active {
+  background: rgba(28, 255, 143, 0.3);
+  color: #001a0c;
+}
+
+.term-key.wide {
+  grid-column: span 3;
+  font-size: 0.8rem;
+}
+
+.term-exit {
+  margin: 6px 0 0;
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  color: rgba(125, 255, 190, 0.5);
+}
+
+/* A wooden plank, in the hotbar. */
+.slot-icon.plank {
+  border-radius: 2px;
+  background: linear-gradient(180deg, #b98a4c, #7a5628 60%, #59401d);
+  box-shadow: 0 0 6px rgba(230, 180, 100, 0.5);
+}
+
+/* The mobile ACT button (interact / hold to board up). */
+#mcAct {
+  right: 118px;
+  bottom: 306px;
+  border-color: rgba(60, 210, 255, 0.5);
+  color: #9ff0ff;
+}
+
+#mcAct:active {
+  background: rgba(60, 210, 255, 0.28);
+}
+
 /* Game-over overlay. */
 #gameOverOverlay {
   background: radial-gradient(circle at center, rgba(40, 0, 0, 0.9), rgba(0, 0, 0, 0.98));

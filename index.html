@@ -28,11 +28,43 @@
       <div class="hud-energy-track"><div class="hud-torch-fill" id="torchFill"></div></div>
     </div>
 
+    <!-- Safe-room door durability (shown when a door is damaged or under siege). -->
+    <div class="hud-door hidden" id="doorBar">
+      <span class="hud-energy-label">DOOR</span>
+      <div class="hud-energy-track"><div class="hud-door-fill" id="doorFill"></div></div>
+    </div>
+
+    <!-- Contextual [E] prompt: switch, terminal, panic button, board up door. -->
+    <div class="use-prompt hidden" id="usePrompt"></div>
+
     <!-- Sonar radar (bottom-right, shown while playing). -->
     <canvas id="radar" class="radar hidden" width="180" height="180"></canvas>
 
     <!-- Screen flash when a crucifix is brandished. -->
     <div id="wardFlash" class="ward-flash hidden" aria-hidden="true"></div>
+
+    <!-- Halon vent: dense fog + a blaring alarm. You can't see either. -->
+    <div id="halon" class="halon hidden" aria-hidden="true">
+      <div class="halon-fog"></div>
+      <div class="halon-alarm">⚠ HALON DISCHARGE ⚠</div>
+    </div>
+
+    <!-- The terminal. Your camera is bolted to this while it's open; the door is
+         behind you and you cannot see it. -->
+    <div id="terminalOverlay" class="terminal hidden">
+      <div class="term-screen">
+        <div class="term-head">
+          <span>SYS/RECLAMATION</span>
+          <span id="termProgress">0 / 3</span>
+        </div>
+        <p class="term-line">AUTHORISE SEQUENCE — ENTER CODE</p>
+        <div class="term-code" id="termCode">0000</div>
+        <div class="term-typed" id="termTyped">____</div>
+        <p class="term-warn hidden" id="termWarn">DOOR BREACHED · YOU ARE MAKING NOISE</p>
+        <div class="term-pad" id="termPad"></div>
+        <p class="term-exit">[E] step away from the terminal</p>
+      </div>
+    </div>
 
     <!-- Mobile on-screen controls: left half of the canvas drives movement and
          the right half drives the camera; these buttons sit on the right. -->
@@ -40,6 +72,8 @@
       <button class="mc-btn" id="mcPing" type="button">PING</button>
       <button class="mc-btn" id="mcRun" type="button">RUN</button>
       <button class="mc-btn" id="mcEat" type="button">USE</button>
+      <!-- Hold this one: it's also how you board up a door. -->
+      <button class="mc-btn mc-act" id="mcAct" type="button">ACT</button>
       <button class="mc-btn mc-pause" id="mcPause" type="button">II</button>
     </div>
 
@@ -67,7 +101,9 @@
             <option value="mouse0">Left click</option>
             <option value="mouse2">Right click</option>
             <option value="Space">Spacebar</option>
-            <option value="KeyE">E</option>
+            <!-- E is the interact key (switches, terminals, boarding up doors),
+                 so it is no longer offered here. -->
+            <option value="KeyR">R</option>
           </select>
         </div>
         <p class="headphones-note">
@@ -75,8 +111,14 @@
           sound — you hear exactly where they are, and walls muffle them.
         </p>
         <p class="controls-hint">
-          <strong>PC:</strong> WASD move · Mouse look · Q run · 1-9 / scroll select slot · F use · Esc pause<br />
-          <strong>Mobile:</strong> left half moves · right half looks · tap a hotbar slot to select · USE button
+          <strong>PC:</strong> WASD move · Mouse look · Q run · 1-9 / scroll select slot · F use · E interact · Esc pause<br />
+          <strong>Mobile:</strong> left half moves · right half looks · tap a hotbar slot to select · USE / ACT buttons
+        </p>
+        <p class="controls-hint">
+          <strong>Safe rooms:</strong> find the switch with the matching serial, pull it,
+          then <em>shove the door open</em>. Seal yourself in, finish the terminal, and take
+          what's in the locker — while they take the door apart. Board it up with planks.
+          The red button is one use, ever.
         </p>
         <p class="panel-version">Build <strong id="versionLabel">—</strong></p>
         </div>

@@ -1256,12 +1256,49 @@ select:focus {
 /* The radar keeps its green. It is the sonar, and the sonar is the one thing in
    this game that is allowed to be that colour. */
 
-/* The PING button goes dead while the sonar recharges. The radar's outer ring is
-   the actual gauge; this is just so the button doesn't look pressable when it
-   isn't. */
+/* ---------------------------------------------------------------------------
+   SEND SONAR — the button is the cooldown dial.
+   Fire it and it goes dark. Then a wedge of light sweeps clockwise from twelve
+   o'clock, widening as the dish recharges, until the circle closes and it's whole
+   again. No number, no bar, no label: the thing in your hand visibly comes back.
+   --------------------------------------------------------------------------- */
+#mcPing {
+  position: relative;
+  border-radius: 50%; /* it's a dial, so it's round */
+  overflow: hidden;
+  --charge: 1;        /* 0..1, written every frame from game.js */
+}
+
+/* The sweep sits UNDER the label (the span is z-index 1), so the text stays
+   readable the whole way round. */
+#mcPing::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from -90deg,
+    rgba(216, 200, 64, 0.34) calc(var(--charge) * 360deg),
+    rgba(0, 0, 0, 0.66) 0
+  );
+  transition: none; /* driven per-frame; a transition would fight the loop */
+}
+
+#mcPing > span {
+  position: relative;
+  z-index: 1;
+}
+
+/* Recharging: dim, unpressable-looking, and the border loses its glow. */
 #mcPing.charging {
-  opacity: 0.35;
-  border-color: rgba(216, 200, 64, 0.18);
+  color: rgba(232, 227, 207, 0.4);
+  border-color: rgba(216, 200, 64, 0.16);
+}
+
+/* Full: the ring closes and the whole thing lifts. */
+#mcPing:not(.charging) {
+  border-color: rgba(216, 200, 64, 0.75);
+  box-shadow: 0 0 12px rgba(216, 200, 64, 0.28);
 }
 
 /* USE is the single mobile action button: tap to use the selected item or act on

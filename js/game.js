@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.50.0";
+const VERSION = "v2.51.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -1266,6 +1266,12 @@ function loop(now) {
   // number, the thing in your hands just visibly comes back to life.
   const sonarCharge = 1 - Math.max(0, sonarTimer) / SONAR_COOLDOWN;
   radar.draw(now * 0.001, player.pos, player.yaw, entities.entities, sonarCharge);
+
+  // The SEND SONAR button is itself the dial: --charge drives a conic sweep that
+  // fills clockwise from twelve o'clock as the dish comes back. Written straight to
+  // the element every frame — no CSS transition, or it would lag behind the loop and
+  // the wedge would never quite line up with when you can actually fire.
+  mcPing.style.setProperty("--charge", sonarCharge.toFixed(3));
   mcPing.classList.toggle("charging", sonarTimer > 0);
 
   renderer.render(scene, camera);

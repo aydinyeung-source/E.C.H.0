@@ -65,12 +65,15 @@ const BASE_SPEED = 2.2;             // "1x" — a hunter stalking you at close r
 // comfortably slower than your 7.6 sprint.)
 const CHASE_SPEED = Math.min(BASE_SPEED * 2.5, PLAYER_RUN_SPEED * 0.85);
 
-// How far they can actually see you. Deliberately SHORT: it is pitch black down
-// here and they have no light of their own. Standing at the far end of a long
-// straight corridor is NOT automatically being seen — you have to be close for
-// them to pick you out of the dark. This is what makes a straight run past an
-// open junction survivable.
-const SIGHT_RANGE = 12;
+// How far they can actually see you. Deliberately SHORT — and now shorter still,
+// because the fog was pushed back to ~60m and the player's view got much longer.
+//
+// That gap IS the game. You can see the length of a corridor; they can see about
+// a cell and a half. So you will nearly always spot one before it spots you, and
+// what you do with that head start — freeze, back off, go round, dive through a
+// window — is the whole of the stealth. Let their sight grow with your view and
+// you'd just be swapping information for information and gaining nothing.
+const SIGHT_RANGE = 9;
 const HEAR_RADIUS = 24;             // how far a sonar ping carries (was 40)
 const CLOSE_RANGE = 5;              // inside this a hunter slows to 1x and stalks
 const LOS_MEMORY = 2;               // seconds it keeps hunting after losing SIGHT
@@ -109,11 +112,16 @@ const BASE_POP = 1;
 const MAX_POP = 3;
 const POP_PER_METRE = 120;          // +1 to the target every 120m survived
 const PLACE_COOLDOWN = 45;          // seconds between any two new arrivals
-const POP_MIN_DIST = 30;            // always well beyond SIGHT_RANGE
-const POP_MAX_DIST = 50;
-const FOG_HIDE_DIST = 42;           // past here the fog has eaten everything anyway
+// These all had to move out with the view distance. You can now see ~60m instead
+// of ~35m, and the old numbers placed new arrivals 30-50m away and called them
+// "hidden by fog" past 42m — which would now mean watching one blink into
+// existence down the corridor in plain sight. The whole point of _place is that
+// you must NEVER see one appear.
+const POP_MIN_DIST = 40;            // far beyond SIGHT_RANGE, and beyond a glance
+const POP_MAX_DIST = 70;            // kept inside the guaranteed-built 72u of world
+const FOG_HIDE_DIST = 65;           // past here the fog really has eaten everything
 const MIN_SEPARATION = 22;
-const DESPAWN = 60;                 // drop ones that fall far behind, then re-place
+const DESPAWN = 90;                 // drop ones that fall far behind, then re-place
 
 // Their eyes give off the faintest red light. It reaches barely a couple of
 // metres — it will never light your way — but if one is close and behind you, the

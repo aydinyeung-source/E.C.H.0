@@ -64,10 +64,16 @@ const CHUNK_TORCH_CHANCE = 0.05;
 const CHUNK_CRUCIFIX_CHANCE = 0.05;
 const CHUNK_CELLS = 6;   // cells per chunk edge (bigger = longer unbroken halls)
 const CHUNK_SIZE = CELL * CHUNK_CELLS;
-// Chunks are 6x6 cells (36u) now, so a radius of 1 already keeps 36-72u of world
-// live in every direction — well past where the fog blacks everything out (~40u).
-// Keeping this at 2 would quadruple the geometry for scenery you can never see.
-const CHUNK_RADIUS = 1;  // chunks kept live around the player (per axis)
+// Chunks are 6x6 cells (36u). At radius 1 the WORST case — standing at a chunk's
+// edge — leaves only 36u of world built in front of you, which was fine when the
+// fog blacked everything out at ~35u but is not fine now that you can see 60u.
+// See further than the world exists and you get to watch corridors end in void.
+//
+// Radius 2 guarantees at least 72u of built world in every direction, which
+// covers the fog with room to spare. It costs: 25 live chunks instead of 9, so
+// roughly 2.8x the geometry. That's the price of the view, and it's an honest
+// trade — these chunks are a handful of InstancedMeshes each.
+const CHUNK_RADIUS = 2;  // chunks kept live around the player (per axis)
 
 const COL_WALL = 0xd8c840;  // backrooms wall yellow
 const COL_FLOOR = 0xb8a63a; // grimy carpet yellow

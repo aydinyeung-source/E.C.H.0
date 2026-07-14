@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.35.0";
+const VERSION = "v2.36.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -79,7 +79,16 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
-scene.fog = new THREE.FogExp2(0x000000, 0.045);
+// THE FOG IS THE RENDER DISTANCE. Nothing here is lit, so how far you can see is
+// decided entirely by how fast this black fog swallows a surface the sonar has
+// revealed. 0.045 blacked everything out past ~35m, which made even a long
+// straight corridor end in a wall of nothing a few strides ahead.
+//
+// 0.028 pushes that out to roughly 60m — you can now see a whole corridor light
+// up and watch the ring travel away from you down it. It has to be kept in step
+// with CHUNK_RADIUS in world.js: see further than the world is built and you'd be
+// staring at the edge of the void.
+scene.fog = new THREE.FogExp2(0x000000, 0.028);
 
 const camera = new THREE.PerspectiveCamera(
   75,

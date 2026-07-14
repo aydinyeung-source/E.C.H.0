@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.30.0";
+const VERSION = "v2.31.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -658,10 +658,23 @@ function submitScoreIfDaily() {
   }
 }
 
+// Returning to the menu re-stages the background scene. Without this the home
+// screen would sit at the spot you died, with whatever killed you standing in
+// the camera — which is funny once and awful every time after.
+function restageMenu() {
+  player.reset(SPAWN);
+  world.update(player.pos);
+  entities.reset(player.pos, world); // one of them, placed far off and out of sight
+  saferooms.reset();
+  menuDrift = 0;
+  menuPing = 1.5;
+}
+
 tryAgainButton.addEventListener("click", () => {
   dead = false;
   gameOverOverlay.classList.add("hidden");
   startOverlay.classList.remove("hidden");
+  restageMenu();
 });
 
 // Resume the paused run or bail out to the home screen.
@@ -674,6 +687,7 @@ homeButton.addEventListener("click", () => {
   setPlaying(false);
   pauseOverlay.classList.add("hidden");
   startOverlay.classList.remove("hidden");
+  restageMenu();
 });
 
 // --- Mobile on-screen buttons -----------------------------------------------
@@ -939,11 +953,46 @@ function updateDistance() {
   distanceTag.textContent = Math.round(run.maxDistance) + "m";
 }
 
+// --- The home screen's live background ---------------------------------------
+// The menu is not a picture. The maze is rendering live behind it, and there is
+// something in it.
+//
+// Every few seconds an ambient ping washes down the corridors — free, silent,
+// and it alerts nothing, because the thing back there has no AI running. It just
+// walks the halls. Its eyes are unlit, so even in total darkness you get two red
+// points drifting past behind the login form, and when a ping does land you get a
+// second of silhouette.
+//
+// The camera breathes very slightly, so the shot is never quite still.
+const MENU_PING_INTERVAL = 6.5;
+let menuPing = 1.5;
+let menuDrift = 0;
+
+function updateMenuScene(dt) {
+  entities.menuStart(world, player.pos); // no-op once one is out there
+  entities.menuUpdate(dt, world);
+
+  menuPing -= dt;
+  if (menuPing <= 0) {
+    menuPing = MENU_PING_INTERVAL + Math.random() * 4;
+    sonar.pulse(player.pos);
+  }
+
+  menuDrift += dt;
+  player.yaw = Math.sin(menuDrift * 0.09) * 0.42;
+  player.pitch = Math.sin(menuDrift * 0.06) * 0.05;
+}
+
 // --- Main loop --------------------------------------------------------------
 let last = performance.now();
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05); // clamp long frames (tab switch)
   last = now;
+
+  // Idling on the home screen: run the ambient scene behind the menu.
+  if (!playing && !dead && !startOverlay.classList.contains("hidden")) {
+    updateMenuScene(dt);
+  }
 
   // Speed boosts. The halon vent outranks the crucifix — it's the bigger panic.
   if (panicTimer > 0) {
@@ -1058,6 +1107,7 @@ Menu.onSessionRevoked = () => {
   gameOverOverlay.classList.add("hidden");
   pauseOverlay.classList.add("hidden");
   startOverlay.classList.remove("hidden");
+  restageMenu();
 };
 
 // --- Boot -------------------------------------------------------------------

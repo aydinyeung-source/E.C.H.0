@@ -297,6 +297,34 @@ export class EntitySystem {
     entity.enrageTimer = Math.max(entity.enrageTimer, duration);
   }
 
+  // --- The home screen ------------------------------------------------------
+  // One of them, wandering the halls behind the menu. It has no AI: it doesn't
+  // know you exist, it can't see you, it will never come for you. It just walks.
+  //
+  // It uses the SAME pathing as a real one, so it follows actual corridors and
+  // turns actual corners instead of gliding through walls. Its eyes are unlit
+  // basic material — two red points that stay visible in total darkness — so most
+  // of the time all you get is a pair of eyes drifting across the black behind
+  // the login form, and occasionally the ambient ping catches its silhouette.
+  menuStart(world, origin) {
+    if (this.entities.length) return;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 10 + Math.random() * 14;
+      const x = origin.x + Math.cos(a) * r;
+      const z = origin.z + Math.sin(a) * r;
+      if (!world.findPath(origin.x, origin.z, x, z)) continue; // somewhere it can actually walk
+      this._spawnAt(x, z);
+      return;
+    }
+  }
+
+  // Menu-only tick: wander, nothing else.
+  menuUpdate(dt, world) {
+    for (const e of this.entities) this._wander(e, dt, world);
+    this._syncEyeLights();
+  }
+
   // Put one out in the world. It must be far away, clear of the others, and —
   // critically — SOMEWHERE YOU CANNOT SEE. You must never watch one appear: it's
   // unfair, it wrecks a run, and it destroys the fiction that they were already

@@ -930,6 +930,59 @@ button.secondary:hover {
 }
 
 /* ---------------------------------------------------------------------------
+   THE LOGIN GATE + THE LIVE BACKGROUND
+   Signed out, the home screen IS the login screen — no settings, no seed, no
+   play buttons, no leaderboard. And the home overlay is now only partly opaque,
+   because the maze is rendering live behind it: the ambient ping washes the
+   corridors and something walks around back there.
+   --------------------------------------------------------------------------- */
+#startOverlay {
+  /* Lighter than the pause/death overlays: you're meant to see through it. The
+     world is pitch black anyway until a ping lights it, so this reads as a
+     vignette until something moves. */
+  background: radial-gradient(circle at center, rgba(2, 8, 4, 0.55), rgba(0, 0, 0, 0.88));
+}
+
+.login-brand {
+  display: none; /* only on the signed-out login screen */
+}
+
+#startOverlay.signed-out .login-brand {
+  display: block;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+#startOverlay.signed-out .login-brand h1 {
+  margin: 0 0 6px;
+  font-size: 2.2rem;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  color: #39ff14;
+  text-shadow: 0 0 18px rgba(57, 255, 20, 0.6), 0 0 40px rgba(57, 255, 20, 0.25);
+}
+
+#startOverlay.signed-out .login-brand .tagline {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+/* Everything that is not the login form, gone. */
+#startOverlay.signed-out .menu-panel.top-left,
+#startOverlay.signed-out .menu-center {
+  display: none;
+}
+
+/* The account panel stops being a corner panel and becomes the page. The overlay
+   is a centring grid, so dropping `position: absolute` is all it takes. */
+#startOverlay.signed-out .menu-panel.top-right {
+  position: static;
+  width: min(340px, 90vw);
+  padding: 28px;
+  margin: auto;
+}
+
+/* ---------------------------------------------------------------------------
    PLAYTEST IMMUNITY (dev account only)
    Deliberately loud and amber — nothing else in the game is this colour. An
    immune run must never be mistakable for a real one, either on the home screen

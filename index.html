@@ -128,8 +128,16 @@
         </div>
       </div>
 
-      <!-- Top-right: account -->
+      <!-- Top-right: account. When signed out this panel becomes the ENTIRE
+           screen — the settings tab, the seed, the play buttons and the
+           leaderboard are all hidden, and this centres itself as a login page
+           (see #startOverlay.signed-out in style.css). You get in, or you get
+           nothing. -->
       <div class="menu-panel top-right">
+        <div class="login-brand" id="loginBrand">
+          <h1>E.C.H.0</h1>
+          <p class="tagline">Identify yourself.</p>
+        </div>
         <div id="authForms">
           <div class="auth-tabs">
             <button id="tabLogin" class="tab active" type="button">Log in</button>

@@ -56,6 +56,7 @@ export const Menu = {
     this.list = el("leaderboardList");
     this.playtestRow = el("playtestRow");
     this.playtestToggle = el("playtestToggle");
+    this.overlay = el("startOverlay");
 
     this.mode = "login";
     this._setMode("login");
@@ -175,6 +176,12 @@ export const Menu = {
     if (loggedIn) {
       this.userLabel.textContent = (await getUsername()) || user.email || "player";
     }
+
+    // Signed out = the login screen, and nothing else. But ONLY when there is a
+    // backend to sign in to: with blank Supabase keys (offline build, no config)
+    // accounts are disabled entirely, and gating on a login nobody can perform
+    // would lock the player out of their own game forever.
+    this.overlay.classList.toggle("signed-out", isSupabaseConfigured() && !loggedIn);
     // Log out (or log in as anyone else) and immunity is gone AND disarmed — it
     // must never survive an account change and quietly suppress someone's score.
     if (!this.isPlaytester) this.playtest = false;

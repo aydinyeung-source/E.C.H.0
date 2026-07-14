@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.31.0";
+const VERSION = "v2.32.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -55,6 +55,7 @@ const settingsToggle = document.getElementById("settingsToggle");
 const settingsBody = document.getElementById("settingsBody");
 const mcAct = document.getElementById("mcAct");
 const playtestTag = document.getElementById("playtestTag");
+const deathTag = document.getElementById("deathTag");
 const doorBar = document.getElementById("doorBar");
 const doorFill = document.getElementById("doorFill");
 const usePrompt = document.getElementById("usePrompt");
@@ -209,6 +210,7 @@ function setPlaying(v) {
   }
   player.enabled = v;
   playtestTag.classList.toggle("hidden", !(v && run.playtest));
+  deathTag.classList.toggle("hidden", !(v && run.playtest));
   energyBar.classList.toggle("hidden", !v);
   hotbarEl.classList.toggle("hidden", !v);
   torchBar.classList.toggle("hidden", !v);
@@ -514,7 +516,15 @@ function todayUTC() {
 // --- Run control ------------------------------------------------------------
 // A "run" tracks the active seed, whether it's the competitive daily challenge,
 // and the furthest distance reached from spawn (the leaderboard metric).
-const run = { seed: 0, date: todayUTC(), isDaily: false, maxDistance: 0, playtest: false };
+const run = { seed: 0, date: todayUTC(), isDaily: false, maxDistance: 0, playtest: false, deaths: 0 };
+
+// Seconds an entity must be off you before another catch counts as a new death.
+const DEATH_RECOUNT = 3;
+let deathCooldown = 0;
+
+function renderDeathTag() {
+  deathTag.textContent = `☠ WOULD-BE DEATHS: ${run.deaths}`;
+}
 
 function startRun(rawSeedText, label, isDaily) {
   run.seed = parseSeed(rawSeedText);
@@ -524,6 +534,9 @@ function startRun(rawSeedText, label, isDaily) {
   // Immunity is decided ONCE, here, and frozen for the whole run — it can't be
   // switched off partway through to launder a run into a real score.
   run.playtest = Menu.isPlaytester && Menu.playtest;
+  run.deaths = 0;
+  deathCooldown = 0;
+  renderDeathTag();
   playtestTag.classList.toggle("hidden", !run.playtest);
   dead = false;
   heartTimer = 0;
@@ -593,10 +606,35 @@ function showGameOver() {
 // An entity reached the player: jumpscare, then end the run.
 function die() {
   if (dead) return;
+
   // Playtest immunity: they still hunt you, still catch you, still breathe down
   // your neck — you simply do not die. Everything else about the run is real, so
   // what you're testing is the real game.
-  if (run.playtest) return;
+  //
+  // But you still need to KNOW. Every catch is counted and shown, so a playtest
+  // tells you honestly how many times the run would have ended.
+  //
+  // The cooldown matters: die() is called on every frame an entity is inside the
+  // kill radius, so without it standing next to one would rack up 60 deaths a
+  // second. One catch = one death, and it can't count again until it has been off
+  // you for DEATH_RECOUNT seconds.
+  if (run.playtest) {
+    if (deathCooldown <= 0) {
+      run.deaths++;
+      deathCooldown = DEATH_RECOUNT;
+      renderDeathTag();
+      announce("YOU WOULD HAVE DIED", 2);
+      wardFlash.classList.remove("hidden");
+      void wardFlash.offsetWidth; // restart the CSS animation
+      wardFlash.classList.add("flash");
+      setTimeout(() => {
+        wardFlash.classList.remove("flash");
+        wardFlash.classList.add("hidden");
+      }, 400);
+    }
+    return;
+  }
+
   dead = true;
   jumpscareOverlay.classList.remove("hidden");
   audio.jumpscare();
@@ -1007,6 +1045,7 @@ function loop(now) {
   }
 
   if (announceTimer > 0) announceTimer -= dt;
+  if (deathCooldown > 0) deathCooldown -= dt;
 
   // Apply run intent before moving: you can only run with energy to spare —
   // except on halon, where you sprint on adrenaline whether you have it or not.

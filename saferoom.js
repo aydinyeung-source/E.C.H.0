@@ -649,9 +649,9 @@ export class SafeRooms {
     }
     // A status lamp: red until the code is in, green after. Visible down the hall,
     // so you never have to wonder whether you already did this one.
-    const lamp = this._box(this.panicMat, 0.07, 0.07, 0.03, 0.16, 1.83, 0.09);
-    kpGroup.add(lamp);
-    room.meshes.keypadLamp = lamp;
+    const keypadLamp = this._box(this.panicMat, 0.07, 0.07, 0.03, 0.16, 1.83, 0.09);
+    kpGroup.add(keypadLamp);
+    room.meshes.keypadLamp = keypadLamp;
     g.add(kpGroup);
 
     // --- Terminal + locker on the back wall --------------------------------

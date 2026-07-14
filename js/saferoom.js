@@ -37,7 +37,7 @@
 //   standing between you and that being the end of the run.
 // -----------------------------------------------------------------------------
 
-import { CELL, WALL_H, chunkRoom, isWall, isWindowWall } from "./world.js";
+import { CELL, WALL_H, WALL_T, chunkRoom } from "./world.js";
 import { installReveal } from "./reveal.js";
 
 const LOAD_RADIUS = 2;          // chunks around the player whose rooms get built
@@ -483,7 +483,7 @@ export class SafeRooms {
 
     // The task's codes are derived from the serial, so the daily challenge sets
     // everyone the identical task in the identical room.
-    const n = Number(spec.serial);
+    const n = Number(spec.code);
     const codes = [];
     for (let k = 0; k < TASK_CODES; k++) {
       codes.push(String(1000 + ((n * (k + 7) * 37) % 9000)));
@@ -497,6 +497,7 @@ export class SafeRooms {
       // sealed -> open (you pried the grate off) -> breached (they came through it)
       vent: { state: "sealed", durability: VENT_MAX },
       wasInside: false,
+      ventPassable: false, // the crawl only opens up while you're inside the room
       switchPulled: false,
       task: { index: 0, done: false },
       lockerOpen: false,
@@ -604,7 +605,7 @@ export class SafeRooms {
     // fresh canvas texture every time.
     if (!room.serialMat) {
       room.serialMat = new THREE.MeshBasicMaterial({
-        map: makeSerialTexture(s.serial),
+        map: makeSerialTexture(s.code),
         transparent: true,
       });
     }
@@ -625,19 +626,28 @@ export class SafeRooms {
     }
     room.meshes.plates = plates;
 
-    // --- The KEYPAD, out in the hallways ------------------------------------
-    // Deliberately NOT on the door. The code is on the door; the keypad that eats
-    // it is bolted to a wall three to five cells away. You cannot see one from the
-    // other, and that is the entire point — the ten digits have to make the trip
-    // inside your head.
+    // --- The KEYPAD, on the wall right beside the door ----------------------
+    // It used to be bolted to a wall three to five cells out in the hallways, and
+    // nobody could find it. It's now where anyone would actually put a door keypad:
+    // an arm's length from the door it opens, facing the corridor.
     //
-    // No serial plate here. If the keypad told you the code, there would be nothing
-    // to remember.
-    const kp = this._keypadPlacement(s);
+    // The memory game survives the move, because using it puts a full-screen panel
+    // in front of you — the moment you start typing you cannot see the door any
+    // more. Read it, hold it, enter it blind. There's just no scavenger hunt first.
+    //
+    // No code plate on the keypad. If the keypad showed you the code, there would
+    // be nothing to remember.
+    const kpEdge = s.keypad;
+    const kpFace = WALL_T / 2 + 0.02;
+    const kp = {
+      x: kpEdge.x + kpEdge.dir[0] * kpFace,
+      z: kpEdge.z + kpEdge.dir[1] * kpFace,
+    };
     room.keypadPos = kp;
     const kpGroup = new THREE.Group();
     kpGroup.position.set(kp.x, 0, kp.z);
-    kpGroup.rotation.y = kp.yaw;
+    // Face out into the corridor.
+    kpGroup.rotation.y = Math.atan2(kpEdge.dir[0], kpEdge.dir[1]);
 
     kpGroup.add(this._box(this.darkMetalMat, 0.58, 0.72, 0.05, 0, 1.5, 0.01)); // backing plate
     kpGroup.add(this._box(this.keypadMat, 0.46, 0.6, 0.12, 0, 1.5, 0.07));     // the pad itself
@@ -708,30 +718,61 @@ export class SafeRooms {
     room.meshes.lamp = lamp;
 
     // --- The vent, in the back wall -----------------------------------------
-    // A louvred steel grate bolted low into the concrete, as far from the door as
-    // the room gets. Pry it off and it's a crawlspace out.
+    //
+    // THE WALL AROUND IT IS BUILT HERE, and it has to be, which is what went wrong:
+    // the vent's edge is flagged as an "opening" so the maze builds NO wall there
+    // at all — same as the doorway. But a door fills its whole opening and a vent
+    // does not. It's a 1.1m hole in a 6m wall. So the other 4.9m of that wall was
+    // simply MISSING: you could see straight out of the back of every safe room,
+    // and walk out through it.
+    //
+    // So the safe room supplies the wall itself: two posts either side of the hole,
+    // a lintel above it and a sill below. Outer skin uses the world's own wall
+    // material (so from the corridor it is ordinary yellow wall), with a concrete
+    // lining on the room side, exactly like the rest of the shell.
     const v = s.vent;
     const ventGroup = new THREE.Group();
     ventGroup.position.set(v.x, 0, v.z);
     ventGroup.rotation.y = v.horiz ? 0 : Math.PI / 2;
 
-    // Frame: a lip around the opening so it reads as a hole in the wall, not a
-    // poster of one.
+    const midY = VENT_SILL + VENT_H / 2;
+    const postW = (CELL - VENT_W) / 2; // 2.45m of wall either side of the hole
+    const wallMat = this.world.wallMats[3];
+    const lineMat = this.world.roomWallMat;
+    // Which local +Z is the corridor? After the group's rotation, +Z is world +Z
+    // for a horizontal wall and world +X for a vertical one.
+    const outSign = v.horiz ? v.dir[1] : v.dir[0];
+    const skin = 0.04;
+    const face = WALL_T / 2 + 0.02;
+
+    for (const sx of [-1, 1]) {
+      const px = sx * (VENT_W / 2 + postW / 2);
+      ventGroup.add(this._box(wallMat, postW, WALL_H, WALL_T, px, WALL_H / 2, 0));
+      ventGroup.add(this._box(lineMat, postW, WALL_H, skin, px, WALL_H / 2, -outSign * face));
+    }
+    // Lintel above the hole, and the sill you crawl over.
+    const lintelH = WALL_H - (VENT_SILL + VENT_H);
+    ventGroup.add(this._box(wallMat, VENT_W, lintelH, WALL_T, 0, WALL_H - lintelH / 2, 0));
+    ventGroup.add(this._box(lineMat, VENT_W, lintelH, skin, 0, WALL_H - lintelH / 2, -outSign * face));
+    ventGroup.add(this._box(wallMat, VENT_W, VENT_SILL, WALL_T, 0, VENT_SILL / 2, 0));
+
+    // Frame: a steel lip around the opening so it reads as a duct, not a gap.
     const fw = VENT_W + 0.16;
     const fh = VENT_H + 0.16;
-    const midY = VENT_SILL + VENT_H / 2;
-    ventGroup.add(this._box(this.darkMetalMat, fw, 0.08, 0.4, 0, VENT_SILL - 0.04, 0));   // bottom lip
-    ventGroup.add(this._box(this.darkMetalMat, fw, 0.08, 0.4, 0, VENT_SILL + VENT_H + 0.04, 0)); // top lip
+    ventGroup.add(this._box(this.darkMetalMat, fw, 0.08, 0.42, 0, VENT_SILL - 0.04, 0));
+    ventGroup.add(this._box(this.darkMetalMat, fw, 0.08, 0.42, 0, VENT_SILL + VENT_H + 0.04, 0));
     for (const sx of [-1, 1]) {
-      ventGroup.add(this._box(this.darkMetalMat, 0.08, fh, 0.4, sx * (fw / 2 - 0.04), midY, 0));
+      ventGroup.add(this._box(this.darkMetalMat, 0.08, fh, 0.42, sx * (fw / 2 - 0.04), midY, 0));
     }
-    // The dark of the duct behind it.
-    ventGroup.add(this._box(this.ductMat, VENT_W, VENT_H, 0.06, 0, midY, -0.12));
+    // The dark of the duct itself, set back inside the hole.
+    ventGroup.add(this._box(this.ductMat, VENT_W, VENT_H, 0.06, 0, midY, 0));
 
     // The grate itself: a plate of angled louvres and four corner bolts. This is
     // what comes off.
+    // The grate sits on the ROOM side of the wall, because that's the side you
+    // unbolt it from. From the corridor you can't even tell the vent is there.
     const grate = new THREE.Group();
-    grate.position.set(0, midY, 0.06);
+    grate.position.set(0, midY, -outSign * (WALL_T / 2 + 0.04));
     grate.add(this._box(this.metalMat, VENT_W, VENT_H, 0.03, 0, 0, 0));
     for (let k = 0; k < 6; k++) {
       const slat = this._box(this.darkMetalMat, VENT_W - 0.1, 0.055, 0.05, 0, -VENT_H / 2 + 0.1 + k * 0.13, 0.03);
@@ -835,55 +876,8 @@ export class SafeRooms {
     for (const p of room.props) p.mesh = null;
   }
 
-  // Bolt the switch to a REAL wall of a hallway cell out beyond the room. If the
-  // cell it picked somehow has no walls at all (an open junction), we fall back to
-  // standing it in the middle of the floor rather than dropping it into the void.
-  // Bolt the switch to a REAL, WHOLE wall of a hallway cell out beyond the room.
-  //
-  // Never a windowed wall: a window is a hole with a sill, so a switch mounted on
-  // one would be hanging in mid-air over the gap, reachable and readable from the
-  // wrong side, and plainly broken. `isWindowWall` exists purely to rule that out.
-  //
-  // If the cell it picked somehow has no solid wall at all (an open junction), we
-  // stand it in the middle of the floor rather than dropping it into the void.
-  _keypadPlacement(s) {
-    const solid = (t, i, j) => isWall(t, i, j) && !isWindowWall(t, i, j);
-    const inRoom = (i, j) => i >= s.ri && i <= s.ri + 1 && j >= s.rj && j <= s.rj + 1;
-
-    // The ideal cell may have nothing to bolt to — an open junction, or a cell
-    // whose only walls happen to be windows. Rather than leave a lever standing in
-    // mid-air (which happened for about one room in twenty), walk outwards through
-    // neighbouring cells in a FIXED order until we find a solid wall. Fixed order
-    // keeps it deterministic, so the daily challenge still puts every switch in
-    // exactly the same place for everyone.
-    const ring = [
-      [0, 0], [1, 0], [-1, 0], [0, 1], [0, -1],
-      [1, 1], [-1, 1], [1, -1], [-1, -1],
-      [2, 0], [-2, 0], [0, 2], [0, -2],
-    ];
-
-    for (const [ox, oy] of ring) {
-      const ci = s.switchCell[0] + ox;
-      const cj = s.switchCell[1] + oy;
-      if (inRoom(ci, cj)) continue; // it belongs OUT in the hallways
-      const cx = (ci + 0.5) * CELL;
-      const cz = (cj + 0.5) * CELL;
-      const faces = [
-        { on: solid(1, ci, cj), x: ci * CELL + 0.22, z: cz, yaw: Math.PI / 2 },            // west
-        { on: solid(1, ci + 1, cj), x: (ci + 1) * CELL - 0.22, z: cz, yaw: -Math.PI / 2 }, // east
-        { on: solid(0, ci, cj), x: cx, z: cj * CELL + 0.22, yaw: 0 },                      // south
-        { on: solid(0, ci, cj + 1), x: cx, z: (cj + 1) * CELL - 0.22, yaw: Math.PI },      // north
-      ];
-      const found = faces.find((f) => f.on);
-      if (found) return found;
-    }
-
-    // Nowhere in the whole neighbourhood has a wall. Stand it on the floor rather
-    // than dropping it into the void.
-    const ci = s.switchCell[0];
-    const cj = s.switchCell[1];
-    return { x: (ci + 0.5) * CELL, z: (cj + 0.5) * CELL, yaw: 0 };
-  }
+  // (The old hallway search for a wall to bolt the KeySwitch onto lived here. The
+  //  keypad is on the door now, so there is nothing to hunt for.)
 
   // The wall opposite the door: where the terminal and the locker live, so you
   // are always facing AWAY from the door while you work. That's the whole tension.
@@ -948,16 +942,39 @@ export class SafeRooms {
       }
 
       // --- The vent ---
-      // Sealed: a solid wall, no different from the concrete either side of it.
-      // Open:   a `window` bound — which is precisely the broken-window rule
-      //         already in the engine: solid to everyone, except a player who is
-      //         mid-vault. Tagging it `crawl` inverts the arc so you duck into it
-      //         rather than hop over it. They cannot follow you down a duct.
-      // Breached: nothing. They chewed through it and they're coming in.
+      // The maze builds NO wall on this edge (it's an "opening"), so the safe room
+      // owns ALL of its collision — including the two solid posts either side of the
+      // hole. Those are permanent: they are wall, and they were missing entirely,
+      // which is why you could walk out of the back of a room.
+      const v = room.spec.vent;
+      const half = WALL_T / 2;
+      const postW = (CELL - VENT_W) / 2;
+      for (const sx of [-1, 1]) {
+        const off = sx * (VENT_W / 2 + postW / 2);
+        out.push(
+          v.horiz
+            ? { minX: v.x + off - postW / 2, maxX: v.x + off + postW / 2, minZ: v.z - half, maxZ: v.z + half }
+            : { minX: v.x - half, maxX: v.x + half, minZ: v.z + off - postW / 2, maxZ: v.z + off + postW / 2 }
+        );
+      }
+
+      // And the hole in the middle of them:
+      //   sealed    - solid. It's a grate bolted into concrete.
+      //   open      - a `window` bound tagged `crawl` (the broken-window rule that's
+      //               already in the engine: solid to all, except a player mid-vault;
+      //               `crawl` inverts the arc so you duck in rather than hop over).
+      //               ONLY while the player is INSIDE — see _ventPassable below. It is
+      //               a way OUT, not a way in.
+      //   breached  - nothing at all. They chewed through it and they're coming in.
       if (room.vent.state !== "breached") {
-        const box = boxFor(room.spec.vent, DOOR_T / 2);
-        if (room.vent.state === "open") out.push({ ...box, window: true, crawl: true });
-        else out.push(box);
+        const hole = v.horiz
+          ? { minX: v.x - VENT_W / 2, maxX: v.x + VENT_W / 2, minZ: v.z - half, maxZ: v.z + half }
+          : { minX: v.x - half, maxX: v.x + half, minZ: v.z - VENT_W / 2, maxZ: v.z + VENT_W / 2 };
+        if (room.vent.state === "open" && room.ventPassable) {
+          out.push({ ...hole, window: true, crawl: true });
+        } else {
+          out.push(hole);
+        }
       }
     }
     this.world.extraBounds = out;
@@ -1047,6 +1064,18 @@ export class SafeRooms {
     }
     room.wasInside = inside;
 
+    // A VENT IS AN EXIT, NOT AN ENTRANCE. The crawl bound only exists while you are
+    // standing INSIDE the room, so you can never wriggle in through the back of a
+    // safe room and skip the door, the code and the whole point of the place. From
+    // the corridor an open vent is just a hole with a wall in it.
+    // (Once it's BREACHED that stops applying — at that point it isn't a vent, it's
+    // damage, and anything can come through it.)
+    const passable = inside && room.vent.state === "open";
+    if (passable !== room.ventPassable) {
+      room.ventPassable = passable;
+      this._rebuildBounds();
+    }
+
     // A room is only a refuge while it's still sealed: the door unspent, and the
     // vent not chewed open.
     const compromised = room.door.state === "spent" || room.vent.state === "breached";
@@ -1064,7 +1093,7 @@ export class SafeRooms {
     this._siege(dt, room);
     this._props(room, player);
     this._terminalNoise(dt, room, player);
-    this._interactions(room, player, holdingInteract, dt);
+    this._interactions(room, player, holdingInteract, dt, inside);
 
     // The only thing with a health bar is the vent — and only once you've opened it.
     if (room.vent.state === "open") {
@@ -1243,7 +1272,7 @@ export class SafeRooms {
   }
 
   // --- What can I do right now? --------------------------------------------
-  _interactions(room, player, holding, dt) {
+  _interactions(room, player, holding, dt, inside) {
     const px = player.pos.x;
     const pz = player.pos.z;
     const near = (p) => p && Math.hypot(p.x - px, p.z - pz) < REACH;
@@ -1280,38 +1309,36 @@ export class SafeRooms {
     }
     this._repair = 0;
 
-    // The grate. One pull, and it does not go back on.
-    if (atVent && room.vent.state === "sealed") {
-      this.prompt = { text: "[E] PRY OPEN VENT · ESCAPE ROUTE", kind: "vent" };
-      return;
-    }
-    if (atVent && room.vent.state === "open" && !this.inv.has("plank")) {
-      this.prompt = { text: "VENT OPEN · WALK IN TO CRAWL", kind: "ventOpen" };
+    // The vent. ONE prompt, and it says the only thing that matters. Prying the
+    // grate and going through it are the same act now — you do not unbolt an
+    // escape hatch and then stand around admiring it.
+    // Only from the inside: from the corridor the vent isn't an interaction at all.
+    if (atVent && inside && room.vent.state !== "breached") {
+      this.prompt = { text: "EXIT THROUGH VENT", kind: "vent" };
       return;
     }
 
-    // The keypad. It does NOT show you the code — that's the whole point.
-    if (near(room.keypadPos)) {
-      this.prompt = room.switchPulled
-        ? { text: "KEYPAD · CODE ACCEPTED", kind: "keypadDone" }
-        : { text: "[E] ENTER DOOR CODE", kind: "keypad" };
+    if (near(room.keypadPos) && !room.switchPulled) {
+      this.prompt = { text: "KEYPAD", kind: "keypad" };
       return;
     }
     if (near(room.termPos) && !room.task.done) {
-      this.prompt = { text: "[E] USE TERMINAL", kind: "terminal" };
+      this.prompt = { text: "TERMINAL", kind: "terminal" };
       return;
     }
     if (near(room.lockPos) && room.lockerOpen && room.props.some((p) => p.type !== "plank")) {
-      this.prompt = { text: "[E] TAKE FROM LOCKER", kind: "locker" };
+      this.prompt = { text: "LOCKER", kind: "locker" };
       return;
     }
     if (canRepair) {
-      this.prompt = { text: "[HOLD E] BOARD UP VENT (+30%)", kind: "repair" };
-      return;
+      this.prompt = { text: "HOLD TO BOARD UP VENT", kind: "repair" };
     }
-    if (atDoor && room.door.state === "locked") {
-      this.prompt = { text: `LOCKED · SERIAL ${s.serial}`, kind: "locked" };
-    }
+
+    // NOTHING here tells you the door code. There used to be a prompt that read
+    // "LOCKED · SERIAL 1379432359" whenever you stood near a locked door, which is
+    // the game reading the door out loud to you — at which point the ten digits are
+    // not in your memory, they're in the HUD, and you may as well not have gone to
+    // the door at all. The code is painted on the door. Go and read it.
   }
 
   // A discrete [E] press.
@@ -1324,16 +1351,27 @@ export class SafeRooms {
         this.openPanel(room, "keypad", player);
         break;
 
-      case "vent":
-        // The grate comes off, and that's irreversible. From here the room has a
-        // soft spot, and the next siege will go straight for it.
-        room.vent.state = "open";
-        this._applyVentVisual(room);
+      case "vent": {
+        // Prying the grate and going through it are ONE act. You do not unbolt an
+        // escape hatch and then stand around. The grate comes off — irreversibly,
+        // the room now has a soft spot and the next siege goes straight for it —
+        // and you are already on your belly in the duct.
+        const v = room.spec.vent;
+        if (room.vent.state === "sealed") {
+          room.vent.state = "open";
+          this._applyVentVisual(room);
+          this.audio.ventPry();
+          this.entities.hearNoise(player.pos.x, player.pos.z, 16); // metal on concrete
+        }
+        room.ventPassable = true;
         this._rebuildBounds();
-        this.audio.ventPry();
-        this.entities.hearNoise(player.pos.x, player.pos.z, 16); // metal on concrete
-        this.fx.ventOpen();
+
+        // Push them through, outward. Distance covers the wall plus enough clearance
+        // to land properly on the far side.
+        const gap = v.horiz ? Math.abs(v.z - player.pos.z) : Math.abs(v.x - player.pos.x);
+        player.startCrawl(v.dir[0], v.dir[1], gap + 1.4);
         break;
+      }
 
       case "terminal":
         this.openPanel(room, "terminal", player);
@@ -1369,7 +1407,7 @@ export class SafeRooms {
   }
 
   _taskCodes(room) {
-    const n = Number(room.spec.serial.slice(0, 6)); // 10 digits is too big to multiply cleanly
+    const n = Number(room.spec.code.slice(0, 6)); // 10 digits is too big to multiply cleanly
     const codes = [];
     for (let k = 0; k < TASK_CODES; k++) codes.push(String(1000 + ((n * (k + 7) * 37) % 9000)));
     return codes;
@@ -1393,9 +1431,9 @@ export class SafeRooms {
         line: "ENTER 10-DIGIT DOOR CODE",
         target: "",                       // never shown. that's the point.
         typed: this.terminal.typed,
-        need: room.spec.serial.length,
+        need: room.spec.code.length,
         index: this.terminal.typed.length,
-        total: room.spec.serial.length,
+        total: room.spec.code.length,
         breached: false,
       };
     }
@@ -1424,7 +1462,7 @@ export class SafeRooms {
     // --- The door keypad ----------------------------------------------------
     if (t.kind === "keypad") {
       t.typed += digit;
-      const code = room.spec.serial;
+      const code = room.spec.code;
 
       // It does NOT tell you when you go wrong. It takes all ten digits and then
       // it either opens or it doesn't. Beeping at the digit you fluffed would turn

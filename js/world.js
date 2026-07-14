@@ -24,7 +24,7 @@ import { installReveal } from "./reveal.js";
 
 export const CELL = 6;   // cell size / hallway width (world units)
 export const WALL_H = 3.2; // wall + ceiling height (low and oppressive)
-const WALL_T = 0.3;      // wall thickness
+export const WALL_T = 0.3; // wall thickness
 // The maze is CARVED, not sprinkled: every chunk starts fully walled and a
 // depth-first search tunnels passages through it. Sprinkling walls onto an open
 // grid (the old approach) left most cells wide open — which is exactly what
@@ -568,16 +568,18 @@ function buildRoomSpec(cx, cy) {
   const ri = cx * CHUNK_CELLS + a; // room's low cell corner, in global cells
   const rj = cy * CHUNK_CELLS + b;
 
-  // THE DOOR CODE. Ten digits, stencilled on the door itself.
+  // THE DOOR CODE. Ten digits, stencilled on the door itself, in the paint.
   //
-  // The keypad that opens the door is NOT on the door — it's bolted to a wall out
-  // in the hallways, several cells away. So you have to stand at the door, read ten
-  // digits off it in the dark, walk away, and still have them when you get there.
-  // No note, no HUD, no second look without walking back. That's the mechanic: the
-  // only place the code is stored is your head, and something is very possibly
-  // following you while it's in there.
-  let serial = "";
-  for (let k = 0; k < 10; k++) serial += Math.floor(hash2(cx, cy, 5160 + k) * 10);
+  // The keypad sits on the wall right beside it — and the memory game survives that
+  // anyway, because using the keypad puts a full-screen panel in front of you. The
+  // instant you start typing you can no longer see the door. So it is still: read
+  // it, hold it, enter it blind. You just don't have to go on a scavenger hunt to
+  // find the thing that eats it.
+  //
+  // Nothing in the game ever tells you this code. It is written on a door, in the
+  // dark, and reading it is your job.
+  let code = "";
+  for (let k = 0; k < 10; k++) code += Math.floor(hash2(cx, cy, 5160 + k) * 10);
 
   // Every edge on the room's shell. `out` is the cell on the OUTSIDE of it,
   // which is where a besieging entity will stand.
@@ -620,14 +622,17 @@ function buildRoomSpec(cx, cy) {
   perimeter.delete(doorId);
   perimeter.delete(ventId);
 
-  // The KeySwitch lives OUT in the hallways, 3-5 cells away. You have to leave,
-  // find it, read the serial and come back.
-  const ang = hash2(cx, cy, 5156) * Math.PI * 2;
-  const dist = 3 + Math.floor(hash2(cx, cy, 5157) * 3);
-  const switchCell = [
-    ri + Math.round(Math.cos(ang) * dist),
-    rj + Math.round(Math.sin(ang) * dist),
-  ];
+  // The keypad goes on the OTHER shell edge on the door's own side — i.e. the
+  // stretch of wall immediately beside the doorway, facing the corridor. You cannot
+  // stand at the door without it being right there.
+  //
+  // It cannot go on the door edge itself: the door fills that whole cell, so a
+  // keypad there would be floating in the opening. The sibling edge is guaranteed
+  // to be a real wall (it's in `perimeter`), and it's guaranteed not to be the vent,
+  // because the vent is always on the far side.
+  const keypadEdge = shell.find(
+    (e) => e.side === door.side && !(e.type === door.type && e.i === door.i && e.j === door.j)
+  );
 
   const edgePos = (e) =>
     e.type === 0
@@ -636,21 +641,31 @@ function buildRoomSpec(cx, cy) {
 
   const doorPos = edgePos(door);
   const ventPos = edgePos(vent);
+  const kpPos = edgePos(keypadEdge);
+
+  // Which way is OUT of the room through a given side, as a unit direction on the
+  // XZ plane. `dir`, NOT `out` — `out` already means "the cell on the far side of
+  // this edge" and overloading it would be a bug waiting to happen.
+  const outward = { W: [-1, 0], E: [1, 0], S: [0, -1], N: [0, 1] };
 
   return {
     key: cx + ":" + cy,
-    cx, cy, ri, rj, serial,
+    cx, cy, ri, rj, code,
     door: { ...door, id: doorId, x: doorPos.x, z: doorPos.z, horiz: door.type === 0 },
     vent: {
       ...vent, id: ventId, x: ventPos.x, z: ventPos.z, horiz: vent.type === 0,
+      dir: outward[vent.side],
       // Where you come out when you crawl, and where they'll gather if you open it.
       outside: { x: (vent.out[0] + 0.5) * CELL, z: (vent.out[1] + 0.5) * CELL },
+    },
+    keypad: {
+      ...keypadEdge, x: kpPos.x, z: kpPos.z, horiz: keypadEdge.type === 0,
+      dir: outward[keypadEdge.side],
     },
     // Where a besieger stands: the middle of the cell on the far side of the door.
     outside: { x: (door.out[0] + 0.5) * CELL, z: (door.out[1] + 0.5) * CELL },
     interior,
     perimeter,
-    switchCell,
     minX: ri * CELL, maxX: (ri + 2) * CELL,
     minZ: rj * CELL, maxZ: (rj + 2) * CELL,
     cxWorld: (ri + 1) * CELL,

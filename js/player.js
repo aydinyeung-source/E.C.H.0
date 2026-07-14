@@ -130,6 +130,19 @@ export class Player {
     }
   }
 
+  // Driven from outside (the safe-room vent): commit to a crawl in a given
+  // direction, right now. Same machinery as a window vault, ducked instead of
+  // hopped, and equally impossible to abort once it starts.
+  startCrawl(dirX, dirZ, dist) {
+    this.vault = {
+      dirX, dirZ,
+      left: dist,
+      total: dist,
+      lift: -VAULT_LIFT * 1.6,
+      speed: VAULT_SPEED * 0.55,
+    };
+  }
+
   // Already committed to a vault: carry it through. No input is read at all here.
   _advanceVault(dt, world) {
     const v = this.vault;

@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.42.0";
+const VERSION = "v2.43.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -134,22 +134,22 @@ const inv = {
   },
 };
 
+// NO NARRATION. These used to throw banners across the screen — "CODE ACCEPTED",
+// "THEY'RE COMING THROUGH THE VENT", "THE DOOR WON'T SHUT AGAIN" — and every one of
+// them was the game leaning over and explaining itself to you. It's a horror game
+// about being somewhere you don't understand, and a HUD that captions the horror is
+// a HUD that has removed it. You don't get told the vent gave way; you hear it give
+// way, and then you hear them.
+//
+// Every one of these events already has a SOUND: the keypad chimes, the grate
+// shrieks off its bolts, the vent breaks with a crash. That's the feedback. The
+// hooks stay as no-ops so the safe-room code doesn't have to care.
 const fx = {
-  codeAccepted() {
-    announce("CODE ACCEPTED · THE DOOR IS LIVE", 3.5);
-  },
-  taskDone(reward) {
-    announce(`TASK COMPLETE · ${reward.toUpperCase()} IN THE LOCKER`, 4);
-  },
-  breach(viaVent) {
-    announce(viaVent ? "THEY'RE COMING THROUGH THE VENT" : "THE ROOM IS OPEN", 3.5);
-  },
-  ventOpen() {
-    announce("VENT OPEN · THEY WILL GO FOR IT NOW", 4);
-  },
-  doorSpent() {
-    announce("THE DOOR WON'T SHUT AGAIN", 3.5);
-  },
+  codeAccepted() {},
+  taskDone() {},
+  breach() {},
+  ventOpen() {},
+  doorSpent() {},
 };
 
 const saferooms = new SafeRooms(scene, world, audio, entities, inv, fx);

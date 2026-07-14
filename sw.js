@@ -21,29 +21,34 @@
 //     queues scores locally instead (see supabase.js pendingSync).
 // -----------------------------------------------------------------------------
 
-const CACHE_VERSION = "echo-v2.39.1";
+const CACHE_VERSION = "echo-v2.40.0";
 const THREE_CDN = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
 
 // The complete app shell.
+//
+// sw.js itself deliberately stays at the ROOT while every module lives in js/. A
+// service worker can only control pages at or below its own path, so moving this
+// file into js/ would silently shrink its scope to /js/ and it would stop
+// controlling the game at all — it'd register fine and then do nothing.
 const PRECACHE = [
   "./",
   "./index.html",
   "./style.css",
   "./manifest.webmanifest",
   "./icon.svg",
-  "./config.js",
-  "./game.js",
-  "./world.js",
-  "./player.js",
-  "./sonar.js",
-  "./reveal.js",
-  "./entities.js",
-  "./pickups.js",
-  "./saferoom.js",
-  "./radar.js",
-  "./audio.js",
-  "./menu.js",
-  "./supabase.js",
+  "./js/config.js",
+  "./js/game.js",
+  "./js/world.js",
+  "./js/player.js",
+  "./js/sonar.js",
+  "./js/reveal.js",
+  "./js/entities.js",
+  "./js/pickups.js",
+  "./js/saferoom.js",
+  "./js/radar.js",
+  "./js/audio.js",
+  "./js/menu.js",
+  "./js/supabase.js",
   THREE_CDN,
 ];
 

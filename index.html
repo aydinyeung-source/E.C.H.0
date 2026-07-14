@@ -224,10 +224,10 @@
 
     <!-- Supabase config (blank keys => offline). Classic script runs first so
          window.SUPABASE_* is set before the modules read it. -->
-    <script src="./config.js"></script>
+    <script src="./js/config.js"></script>
     <!-- Three.js (UMD build) exposes a global `THREE` before our modules run. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script type="module" src="./game.js"></script>
+    <script type="module" src="./js/game.js"></script>
 
     <!-- Service worker: makes the game fully playable offline. Registered after
          load so it never competes with the first paint for bandwidth. -->

@@ -17,7 +17,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.43.0";
+const VERSION = "v2.44.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -507,7 +507,7 @@ function buildTermPad() {
       e.stopPropagation();
       if (k === "EXIT") saferooms.closeTerminal(player);
       else if (k === "CLR") {
-        if (saferooms.terminal) saferooms.terminal.typed = "";
+        if (saferooms.terminal) saferooms.clearTyped();
       } else {
         saferooms.typeDigit(k, player, world);
       }
@@ -956,7 +956,7 @@ window.addEventListener("keydown", (e) => {
       return;
     }
     if (e.code === "Backspace") {
-      saferooms.terminal.typed = "";
+      saferooms.clearTyped();
       renderTerminal();
       return;
     }

@@ -499,6 +499,14 @@ export class SafeRooms {
       wasInside: false,
       ventPassable: false, // the crawl only opens up while you're inside the room
       switchPulled: false,
+      // Digits entered at the keypad SO FAR, kept on the room rather than on the
+      // panel session. That's the whole "chunk by chunk" mechanic: step away from
+      // the keypad — because something is coming, because you need to go back and
+      // re-read the door, because you just can't hold ten digits at once — and the
+      // pad still has what you gave it. Come back and carry on where you left off.
+      // It only cares that the code gets finished, not that it gets finished in one
+      // go.
+      keypadTyped: "",
       task: { index: 0, done: false },
       lockerOpen: false,
       reward: REWARDS[n % REWARDS.length],
@@ -1392,7 +1400,11 @@ export class SafeRooms {
 
   // --- The panel (keypad out in the hall, terminal in the room) --------------
   openPanel(room, kind, player) {
-    this.terminal = { room, kind, typed: "" };
+    // The keypad picks up exactly where you left it. The terminal starts its
+    // current code fresh — that one is a four-digit code the screen is SHOWING you,
+    // so there is nothing to preserve.
+    const typed = kind === "keypad" ? room.keypadTyped : "";
+    this.terminal = { room, kind, typed };
     player.enabled = false;   // you cannot walk
     player.lookLocked = true; // and you cannot look — not at the corridor behind
     player.touchFwd = 0;      // you, not at the door, and NOT back at the code
@@ -1404,6 +1416,14 @@ export class SafeRooms {
     this.terminal = null;
     player.enabled = true;
     player.lookLocked = false;
+  }
+
+  // CLR / backspace. Must wipe the ROOM's buffer too, or the pad would forget what
+  // you cleared and remember it again the next time you walked up to it.
+  clearTyped() {
+    if (!this.terminal) return;
+    this.terminal.typed = "";
+    if (this.terminal.kind === "keypad") this.terminal.room.keypadTyped = "";
   }
 
   _taskCodes(room) {
@@ -1463,6 +1483,10 @@ export class SafeRooms {
     if (t.kind === "keypad") {
       t.typed += digit;
       const code = room.spec.code;
+      // Write straight through to the room. If you walk away right now — mid-code,
+      // three digits in — those three digits are still sitting in the pad when you
+      // come back.
+      room.keypadTyped = t.typed;
 
       // It does NOT tell you when you go wrong. It takes all ten digits and then
       // it either opens or it doesn't. Beeping at the digit you fluffed would turn
@@ -1474,6 +1498,7 @@ export class SafeRooms {
 
       const right = t.typed === code;
       t.typed = "";
+      room.keypadTyped = "";
       if (!right) {
         this.audio.termError();
         return "bad"; // start again. from memory. from the top.

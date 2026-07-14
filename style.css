@@ -1312,12 +1312,18 @@ select:focus {
 /* The sweep sits UNDER the label (the span is z-index 1), so the text stays
    readable the whole way round. On a square button the conic reads as a wedge
    wiping across the face, which is if anything clearer than a pie. */
+/* NO `from` ANGLE. A CSS conic-gradient already starts at 12 o'clock and runs
+   clockwise — that is its default. Writing `from -90deg` does not "set" the start
+   to the top, it ROTATES the whole thing a quarter turn anticlockwise, which is
+   what put the sweep at 9 o'clock.
+   (Canvas is the opposite convention — 0 radians is 3 o'clock — which is why the
+   radar ring genuinely does need its -PI/2. The two look like the same fix and
+   are not.) */
 #mcPing::before {
   content: "";
   position: absolute;
   inset: 0;
   background: conic-gradient(
-    from -90deg,
     rgba(216, 200, 64, 0.34) calc(var(--charge) * 360deg),
     rgba(0, 0, 0, 0.66) 0
   );

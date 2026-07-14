@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.52.1";
+const VERSION = "v2.52.2";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");

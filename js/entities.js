@@ -13,19 +13,30 @@ import { RUN_SPEED as PLAYER_RUN_SPEED } from "./player.js";
 //
 // Awareness is TWO-STAGE, and the distinction is the whole stealth game:
 //
-//   1. SOUND -> INVESTIGATE. A sonar ping within HEAR_RADIUS doesn't tell them
-//      where YOU are — it tells them where the NOISE was. They break off what
-//      they were doing and walk over to look. If you've moved on by the time
-//      they get there, they find nothing, lose interest, and go back to
-//      wandering. Pinging marks a SPOT, not you.
+//   1. SOUND -> INVESTIGATE. A noise within earshot doesn't tell them where YOU
+//      are — it tells them where the NOISE was. They break off what they were
+//      doing and walk over to look. If you've moved on by the time they get
+//      there, they find nothing, lose interest, and go back to wandering. Noise
+//      marks a SPOT, not you.
 //
 //   2. SIGHT -> HUNT. They only actually come for you once they SEE you: a clear
 //      sightline within SIGHT_RANGE. That's when they lock onto your real
 //      position and give chase. Break the sightline and they keep coming for
 //      LOS_MEMORY seconds, then lose you.
 //
-// So a ping in a corridor you're about to leave is survivable. A ping while
-// standing in their line of sight is not.
+// THE SONAR BREAKS BOTH RULES IN YOUR FACE, and that is the point of it:
+//
+//   * EVERY thing that hears a ping comes looking. Not just the ones already
+//     interested — even one that had given up on you, written you off and
+//     wandered away is dragged straight back in. Nothing ignores a ping.
+//   * And for PING_SIGHT seconds afterwards, SIGHT_RANGE does not apply. Anything
+//     with a clear line to you can see you, at ANY distance.
+//
+// So the ping is not a free look at the map any more. It is you shouting, in the
+// dark, in a lit doorway. Fire it from behind a corner and the three seconds pass
+// with a wall between you and everything that just turned around. Fire it standing
+// in a long straight corridor and you have personally introduced yourself to
+// everything in it.
 //
 // They can't walk through walls: with a sightline they beeline, otherwise they
 // A*-path around the maze.
@@ -74,6 +85,20 @@ const CHASE_SPEED = Math.min(BASE_SPEED * 2.5, PLAYER_RUN_SPEED * 0.85);
 // window — is the whole of the stealth. Let their sight grow with your view and
 // you'd just be swapping information for information and gaining nothing.
 const SIGHT_RANGE = 9;
+
+// THE PING IS NOW GENUINELY DANGEROUS.
+//
+// For PING_SIGHT seconds after you fire the sonar, SIGHT_RANGE stops applying: any
+// entity with a clear line to you can see you, at any distance. The ring doesn't
+// just tell them a noise happened over there — for three seconds it lights YOU up.
+// Stand in the open at the end of a long straight corridor and ping, and something
+// forty metres away now has you.
+//
+// This is the cost the sonar always should have had. You were buying a free map of
+// the level for four energy; now you are buying it by standing in a spotlight, and
+// the right move is to duck round a corner BEFORE you fire, so that the three
+// seconds elapse with a wall between you and everything that just turned round.
+const PING_SIGHT = 3;
 const HEAR_RADIUS = 24;             // how far a sonar ping carries (was 40)
 const CLOSE_RANGE = 5;              // inside this a hunter slows to 1x and stalks
 const LOS_MEMORY = 2;               // seconds it keeps hunting after losing SIGHT
@@ -159,6 +184,7 @@ export class EntitySystem {
     this.nearest = Infinity;
     this.placeTimer = PLACE_COOLDOWN; // no new arrivals for the first stretch
     this.siege = null;                // {x,z} outside a safe-room door, or null
+    this.pingSight = 0;               // >0 = they can see you at ANY range right now
 
     // A FIXED pool of eye lights, created once and never added/removed. Three.js
     // bakes the light count into every shader it compiles, so adding or removing
@@ -188,6 +214,7 @@ export class EntitySystem {
     this.nearest = Infinity;
     this.placeTimer = PLACE_COOLDOWN;
     this.siege = null;
+    this.pingSight = 0;
     for (const light of this.eyeLights) light.intensity = 0;
     if (playerPos && world) {
       for (let i = 0; i < BASE_POP; i++) this._place(playerPos, world);
@@ -218,12 +245,15 @@ export class EntitySystem {
   // The sonar is the loud one. Hammering planks into a door and typing at a
   // terminal are quieter, and pass a smaller radius — but they are still noise,
   // and in here noise is the only currency that matters.
-  hearNoise(x, z, radius = HEAR_RADIUS) {
+  // `wake` = this noise is loud/strange enough to drag back even something that had
+  // given up on you and wandered off. Only the SONAR does that.
+  hearNoise(x, z, radius = HEAR_RADIUS, wake = false) {
     let heard = 0;
     for (const e of this.entities) {
       if (e.blindTimer > 0) continue;                      // deafened too
-      if (e.giveUpTimer > 0) continue;                     // it doesn't care any more
+      if (e.giveUpTimer > 0 && !wake) continue;            // it doesn't care any more
       if (Math.hypot(e.x - x, e.z - z) > radius) continue; // too far to carry
+      if (wake) e.giveUpTimer = 0;                         // it cares again now
       e.nx = x; // where the noise came from
       e.nz = z;
       e.investigateTimer = INVESTIGATE_TIME;
@@ -234,8 +264,18 @@ export class EntitySystem {
     return heard;
   }
 
+  // THE SONAR. Two things, and both of them are bad for you:
+  //
+  //   1. EVERYTHING that hears it comes looking. Not just the ones already
+  //      interested — the ones that had given up on you, written you off and gone
+  //      back to their own business are pulled straight back in. There is no such
+  //      thing as an entity that ignores a ping.
+  //   2. For the next PING_SIGHT seconds they can see you at ANY range.
+  //
+  // The ping is no longer a free look at the map. It is you shouting in the dark.
   hearSonar(x, z) {
-    return this.hearNoise(x, z, HEAR_RADIUS);
+    this.pingSight = PING_SIGHT;
+    return this.hearNoise(x, z, HEAR_RADIUS, true);
   }
 
   // The safe-room siege. While you're sealed in, anything that already knows
@@ -511,6 +551,9 @@ export class EntitySystem {
     // over minutes rather than seconds. If _place can't find a hidden spot it
     // returns false and we keep the cooldown spent-out, so it retries next frame
     // instead of waiting another 45s.
+    // The ping's afterglow: while this is running, they can see you at any range.
+    if (this.pingSight > 0) this.pingSight -= dt;
+
     this.placeTimer -= dt;
     const target = Math.min(BASE_POP + Math.floor(distance / POP_PER_METRE), MAX_POP);
     if (this.entities.length < target && this.placeTimer <= 0) {
@@ -614,10 +657,16 @@ export class EntitySystem {
       }
 
       // --- Can it SEE you? That is the only thing that starts a hunt. ---
-      // Sight is bounded by SIGHT_RANGE — it's pitch black down here, they can't
+      // Normally bounded by SIGHT_RANGE — it's pitch black down here and they can't
       // pick you out from across the level.
+      //
+      // But for the three seconds after a ping, that bound is GONE. The sightline
+      // still has to be clear (a wall is a wall), but distance stops protecting you:
+      // anything with a straight line to you, anywhere, has you. A wall between you
+      // and them is now the only thing that does.
+      const range = this.pingSight > 0 ? Infinity : SIGHT_RANGE;
       const canSee =
-        dPlayer < SIGHT_RANGE && !world.segmentBlocked(e.x, e.z, playerPos.x, playerPos.z);
+        dPlayer < range && !world.segmentBlocked(e.x, e.z, playerPos.x, playerPos.z);
       e.canSee = canSee; // the radar shows a live red dot for anything watching you
 
       const enraged = e.enrageTimer > 0;

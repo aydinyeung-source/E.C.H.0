@@ -796,19 +796,21 @@ export class EntitySystem {
       const hunting = canSee || enraged || aggro || e.huntTimer > 0;
 
       // --- Patience ---
-      // Time spent pursuing you piles up; time spent not pursuing you bleeds it
-      // back off, but only at HALF rate. So briefly breaking line of sight and
-      // being spotted again doesn't hand it a fresh full tank of patience — a
-      // long, scrappy, on-and-off chase still wears it down and ends. Once it's
-      // out of patience it breaks off and leaves you alone for GIVE_UP_TIME.
+      // Time spent pursuing you piles up; time not pursuing bleeds it back off at
+      // half rate, so a long on-and-off chase still wears it down.
       //
-      // BUT a fixated one (aggro) cannot give up — that's the whole promise of the
-      // staring contest: at least AGGRO_HUNT seconds of unshakeable pursuit. Its
-      // chaseTime still ticks up, so the moment the fixation lapses it may give up
-      // immediately if it's already been at this a long time.
+      // BUT IT WILL NOT GIVE UP WHILE IT CAN SEE YOU. That's the whole point: you
+      // cannot flat-out outrun it down a straight corridor and wait for it to lose
+      // interest — as long as it has eyes on you, it comes, however long that takes.
+      // The give-up only fires once you've actually BROKEN its line of sight (and
+      // stayed out of it). So the clock keeps running while you're visible, but the
+      // reward for a long chase — it quits and leaves you alone for GIVE_UP_TIME —
+      // is only paid out the moment you finally turn a corner and get out of sight.
+      //
+      // A fixated one (aggro) can't give up at all until the fixation lapses.
       if (hunting) {
         e.chaseTime += dt;
-        if (e.chaseTime >= CHASE_PATIENCE && !aggro) {
+        if (e.chaseTime >= CHASE_PATIENCE && !canSee && !aggro) {
           this._giveUp(e, playerPos, world);
           e.canSee = false;
           this._wander(e, dt, world);

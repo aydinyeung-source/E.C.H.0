@@ -1475,6 +1475,7 @@ select:focus {
 }
 
 .rules-sheet {
+  position: relative; /* anchors the floating close button */
   width: min(680px, 92vw);
   margin: 40px auto;
   padding: 26px 30px 34px;
@@ -1484,32 +1485,39 @@ select:focus {
   text-align: left;
 }
 
-.rules-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid rgba(216, 200, 64, 0.22);
-  padding-bottom: 14px;
-  margin-bottom: 6px;
-}
-
-.rules-head h1 {
-  margin: 0;
+/* The title is just the first heading of the document now — no banner bar, no
+   divider. It reads as the top of the handbook, not a chrome header stapled on. */
+.rules-title {
+  margin: 0 0 4px;
   font-size: 1.8rem;
   letter-spacing: 0.14em;
   color: var(--lamp);
   text-shadow: 0 0 14px rgba(255, 246, 223, 0.4);
 }
 
+/* A quiet ✕ in the corner, out of the reading flow. */
 .rules-x {
-  flex: none;
-  padding: 7px 12px;
-  font-size: 0.62rem;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(216, 200, 64, 0.3);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.rules-x:hover {
+  background: rgba(216, 200, 64, 0.14);
+  color: var(--lamp);
 }
 
 .rules-lead {
-  margin: 14px 0 6px;
+  margin: 12px 0 6px;
   font-size: 0.9rem;
   line-height: 1.6;
   color: var(--ink);
@@ -1611,7 +1619,7 @@ select:focus {
 
 @media (max-width: 600px) {
   .rules-sheet { margin: 16px auto; padding: 20px 18px 26px; }
-  .rules-head h1 { font-size: 1.4rem; }
+  .rules-title { font-size: 1.4rem; }
 }
 
 /* ---------------------------------------------------------------------------

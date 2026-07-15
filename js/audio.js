@@ -44,6 +44,17 @@ export class AudioSystem {
     this.ambience = null;    // background static + drone + creaks
     this.voices = new Map(); // entity object -> { panner, filter, stepTimer }
 
+    // Recorded samples, loaded once on init(). Everything ELSE in this file is
+    // still synthesised — these three are the only binary assets in the whole game.
+    //   step  — a single entity footfall, replayed at varying rate for tempo/pitch
+    //   move  — the player's own movement bed (breathing + footsteps + running),
+    //           looped and faded while you're moving
+    //   sonar — the outgoing ping
+    // They start null and the code falls back to synthesis until they've decoded,
+    // so nothing is silent or broken during the load.
+    this.samples = { step: null, move: null, sonar: null };
+    this.moveLoop = null; // the looping player-movement source, or null
+
     // Safety net: browsers can leave (or re-put) the context in a suspended
     // state, which silences everything. Any user gesture resumes it.
     const resume = () => {
@@ -72,6 +83,29 @@ export class AudioSystem {
       comp.connect(this.ctx.destination);
     }
     if (this.ctx.state === "suspended") this.ctx.resume();
+    this._loadSamples(); // fire-and-forget; safe to call repeatedly
+  }
+
+  // Decode the three .wav files once. Fetch paths are relative to the PAGE (root),
+  // not this module, so they point at /audio/*, where the files live.
+  async _loadSamples() {
+    if (this._loadStarted || !this.ctx) return;
+    this._loadStarted = true;
+    const load = async (url) => {
+      try {
+        const res = await fetch(url);
+        const arr = await res.arrayBuffer();
+        return await this.ctx.decodeAudioData(arr);
+      } catch (err) {
+        console.warn("[E.C.H.0 audio] failed to load", url, err);
+        return null;
+      }
+    };
+    // Order matters only for feel: the ping and the entity step are the ones you
+    // notice missing first, so they decode ahead of the big movement bed.
+    this.samples.sonar = await load("./audio/sonar.wav");
+    this.samples.step = await load("./audio/entity-step.wav");
+    this.samples.move = await load("./audio/player-move.wav");
   }
 
   _out() {
@@ -82,6 +116,7 @@ export class AudioSystem {
   resetVoices() {
     for (const v of this.voices.values()) this._disposeVoice(v);
     this.voices.clear();
+    this.stopMovement();
   }
 
   _disposeVoice(v) {
@@ -213,11 +248,30 @@ export class AudioSystem {
     }
   }
 
-  // A clean, dry footfall — routed through the entity's filter+panner.
-  // Two layers: a crisp filtered-noise SCUFF (shoe on hard floor) over a tight
-  // low BODY. Both decay fast, so it reads as a sharp, deliberate step rather
-  // than a boomy thud — which is what makes it unsettling instead of cartoonish.
+  // One entity footfall. Prefers the recorded sample — a single step, replayed at
+  // a slightly randomised rate so a run of them doesn't sound mechanically looped
+  // (the rate shift also nudges the pitch, which reads as an uneven, organic gait).
+  // Routed through the entity's filter+panner, so it's spatialised and wall-muffled
+  // exactly like the synth was. Falls back to the synth until the sample decodes.
   _footstepAt(v) {
+    const buf = this.samples.step;
+    if (!buf) {
+      this._footstepSynth(v);
+      return;
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = 0.88 + Math.random() * 0.28; // ~0.88–1.16x
+    const g = this.ctx.createGain();
+    g.gain.value = 0.9;
+    src.connect(g);
+    g.connect(v.filter); // -> panner -> master
+    src.start(this.ctx.currentTime);
+  }
+
+  // The old synthesised footfall, kept as the fallback before the sample loads.
+  // Two layers: a crisp filtered-noise SCUFF over a tight low BODY.
+  _footstepSynth(v) {
     const t = this.ctx.currentTime;
 
     // Scuff: a short noise burst with a cubic decay, band-passed to the click
@@ -256,6 +310,60 @@ export class AudioSystem {
     gain.connect(v.filter);
     osc.start(t);
     osc.stop(t + 0.16);
+  }
+
+  // --- The player's own movement --------------------------------------------
+  // The recorded movement bed (breathing + footsteps + running) loops the whole
+  // time you're moving and fades to silence when you stop. It's NOT spatialised —
+  // it's your own body, so it stays centred in your head like the heartbeat does.
+  // Running fades it louder and nudges the rate up, so the pace and the effort
+  // both lift when you sprint.
+  setMoving(moving, running) {
+    if (!this.ctx || !this.samples.move) return;
+    const t = this.ctx.currentTime;
+
+    if (!this.moveLoop) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.samples.move;
+      src.loop = true;
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0.0001;
+      src.connect(gain);
+      gain.connect(this._out());
+      src.start(t);
+      this.moveLoop = { src, gain };
+    }
+
+    const target = moving ? (running ? 0.85 : 0.55) : 0.0001;
+    this.moveLoop.gain.gain.setTargetAtTime(target, t, 0.18); // glide, no clicks
+    this.moveLoop.src.playbackRate.setTargetAtTime(running ? 1.12 : 1.0, t, 0.25);
+  }
+
+  // Fully stop the movement bed (leaving play / restarting a run).
+  stopMovement() {
+    if (!this.moveLoop) return;
+    try {
+      this.moveLoop.src.stop();
+      this.moveLoop.src.disconnect();
+      this.moveLoop.gain.disconnect();
+    } catch {
+      /* already stopped */
+    }
+    this.moveLoop = null;
+  }
+
+  // The outgoing ping. Non-spatial — it originates at you — and it's the one sound
+  // that plays straight off a sample with no processing.
+  sonar() {
+    const buf = this.samples.sonar;
+    if (!this.ctx || !buf) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const g = this.ctx.createGain();
+    g.gain.value = 0.8;
+    src.connect(g);
+    g.connect(this._out());
+    src.start(this.ctx.currentTime);
   }
 
   // --- Ambience -------------------------------------------------------------
@@ -352,6 +460,7 @@ export class AudioSystem {
   }
 
   stopAmbience() {
+    this.stopMovement(); // your footsteps stop when the room tone does
     if (!this.ambience) return;
     const a = this.ambience;
     clearTimeout(a.creakTimer);

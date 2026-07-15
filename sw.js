@@ -21,7 +21,7 @@
 //     queues scores locally instead (see supabase.js pendingSync).
 // -----------------------------------------------------------------------------
 
-const CACHE_VERSION = "echo-v2.59.0";
+const CACHE_VERSION = "echo-v2.60.0";
 const THREE_CDN = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
 
 // The complete app shell.
@@ -49,6 +49,11 @@ const PRECACHE = [
   "./js/audio.js",
   "./js/menu.js",
   "./js/supabase.js",
+  // The two small audio clips are precached; the ~9MB movement bed is NOT — it
+  // would bloat the install, and the fetch handler caches it on first play anyway,
+  // so offline still works after one online session.
+  "./audio/sonar.wav",
+  "./audio/entity-step.wav",
   THREE_CDN,
 ];
 

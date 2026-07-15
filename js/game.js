@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.59.0";
+const VERSION = "v2.60.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -997,6 +997,7 @@ function fireSonar() {
   if (energy < SONAR_FLOOR) return; // not enough left to sound the ring at all
   sonarTimer = SONAR_COOLDOWN;
   energy = Math.max(0, energy - sonarCost()); // quarter of the rest, plus a flat 6
+  audio.sonar(); // the outgoing ping — you hear yourself send it
   sonar.pulse(player.pos);
   radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
   // The sonar itself is SILENT to the player — no ping, no blip. The entities
@@ -1286,6 +1287,10 @@ function loop(now) {
     } else if (player.moving) {
       energy = Math.min(ENERGY_MAX, energy + WALK_REGEN * dt);
     }
+
+    // Your own movement bed: breathing + footsteps, looped while you move, louder
+    // and faster when you run.
+    audio.setMoving(player.moving, player.running);
 
     updateTorch(dt);
     if (entities.update(dt, player.pos, player.yaw, run.maxDistance, world)) die();

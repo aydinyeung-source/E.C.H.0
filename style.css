@@ -1444,3 +1444,172 @@ select:focus {
 .dead-stat strong {
   color: #ff5a5a;
 }
+
+/* ---------------------------------------------------------------------------
+   THE RULEBOOK
+   A home-screen overlay: a single readable sheet, styled like the maze itself —
+   institutional yellow on grimy dark, squared corners, signage type.
+   --------------------------------------------------------------------------- */
+
+/* A quiet, outline-only button, for "How to Play" and the close controls. */
+.ghost {
+  border: 1px solid rgba(216, 200, 64, 0.4) !important;
+  background: transparent !important;
+  color: var(--ink) !important;
+}
+
+.ghost:hover:not(:disabled) {
+  background: rgba(216, 200, 64, 0.12) !important;
+  color: var(--lamp) !important;
+}
+
+.rules-open {
+  margin-top: 16px;
+  letter-spacing: 0.16em;
+}
+
+#rulesOverlay {
+  z-index: 20; /* above the home screen it opens from */
+  align-items: start;
+  background: radial-gradient(circle at center, rgba(10, 9, 4, 0.94), rgba(0, 0, 0, 0.98));
+}
+
+.rules-sheet {
+  width: min(680px, 92vw);
+  margin: 40px auto;
+  padding: 26px 30px 34px;
+  border: 1px solid var(--panel-line);
+  border-radius: 3px;
+  background: rgba(14, 13, 7, 0.92);
+  text-align: left;
+}
+
+.rules-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(216, 200, 64, 0.22);
+  padding-bottom: 14px;
+  margin-bottom: 6px;
+}
+
+.rules-head h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  letter-spacing: 0.14em;
+  color: var(--lamp);
+  text-shadow: 0 0 14px rgba(255, 246, 223, 0.4);
+}
+
+.rules-x {
+  flex: none;
+  padding: 7px 12px;
+  font-size: 0.62rem;
+}
+
+.rules-lead {
+  margin: 14px 0 6px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.rules-sec {
+  margin-top: 22px;
+}
+
+.rules-sec h2 {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--wall);
+}
+
+.rules-sec p {
+  margin: 0 0 8px;
+  font-size: 0.86rem;
+  line-height: 1.62;
+  color: rgba(232, 227, 207, 0.82);
+}
+
+.rules-sec ul,
+.rules-sec ol {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 8px;
+}
+
+.rules-sec li {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: rgba(232, 227, 207, 0.8);
+}
+
+.rules-sec strong {
+  color: var(--lamp);
+}
+
+.rules-sec em {
+  color: var(--wall);
+  font-style: normal;
+}
+
+/* The "being seen" section is the one that gets you killed, so it's flagged. */
+.rules-sec.danger {
+  border-left: 2px solid rgba(255, 70, 50, 0.55);
+  padding-left: 16px;
+  margin-left: -18px;
+}
+
+.rules-sec.danger h2 {
+  color: #ff6a4a;
+}
+
+.rules-punch {
+  margin-top: 10px !important;
+  color: #ffcf8a !important;
+  font-size: 0.9rem !important;
+}
+
+/* The controls table. */
+.rules-keys {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.rules-keys th {
+  text-align: left;
+  padding: 12px 0 4px;
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--wall);
+  border-bottom: 1px solid rgba(216, 200, 64, 0.18);
+}
+
+.rules-keys td {
+  padding: 5px 0;
+  color: rgba(232, 227, 207, 0.82);
+  vertical-align: top;
+}
+
+.rules-keys td.k {
+  width: 34%;
+  padding-right: 12px;
+  color: var(--lamp);
+  font-family: "Courier New", monospace;
+  letter-spacing: 0.04em;
+}
+
+.rules-keys .dim {
+  color: rgba(232, 227, 207, 0.45);
+}
+
+@media (max-width: 600px) {
+  .rules-sheet { margin: 16px auto; padding: 20px 18px 26px; }
+  .rules-head h1 { font-size: 1.4rem; }
+}

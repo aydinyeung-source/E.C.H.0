@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.55.0";
+const VERSION = "v2.56.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -76,6 +76,15 @@ settingsToggle.addEventListener("click", () => {
   const nowHidden = settingsBody.classList.toggle("hidden");
   settingsToggle.setAttribute("aria-expanded", String(!nowHidden));
 });
+
+// The rulebook: a home-screen-only overlay. It lays on top of the start screen and
+// closes straight back to it — it never appears mid-run.
+const rulesOverlay = document.getElementById("rulesOverlay");
+const openRules = () => rulesOverlay.classList.remove("hidden");
+const closeRules = () => rulesOverlay.classList.add("hidden");
+document.getElementById("rulesButton").addEventListener("click", openRules);
+document.getElementById("rulesClose").addEventListener("click", closeRules);
+document.getElementById("rulesCloseBottom").addEventListener("click", closeRules);
 
 // --- Three.js core ----------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -692,6 +701,7 @@ function beginPlay() {
   startOverlay.classList.add("hidden");
   gameOverOverlay.classList.add("hidden");
   pauseOverlay.classList.add("hidden");
+  rulesOverlay.classList.add("hidden"); // never leave the rulebook over the game
   setPlaying(true);
   sonar.pulse(player.pos); // opening ping (free, doesn't alert entities)
   radar.ping(player.pos, performance.now() / 1000, world, entities.entities);

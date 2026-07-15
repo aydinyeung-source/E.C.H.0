@@ -148,16 +148,7 @@
           sound — you hear exactly where they are, and walls muffle them.
         </p>
         <p class="controls-hint">
-          <strong>PC:</strong> WASD move · Mouse look · Q run · 1-9 / scroll select slot · F use · E interact · Esc pause<br />
-          <strong>Mobile:</strong> left half moves · right half looks · tap a hotbar slot to select · USE (hold to board up a door)
-        </p>
-        <p class="controls-hint">
-          <strong>Safe rooms:</strong> the <em>code is painted on the door</em>. Read it,
-          then use the keypad beside it — the screen covers the door, so you enter it from
-          memory. Then <em>shove the door open</em>. It's loud enough to be heard two chunks
-          away and it holds against anything, so what you'll have outside is a crowd.
-          Finish the terminal to scatter them. The vent in the back wall is a way out —
-          but once the grate is off, it's the way they come in.
+          New here? The <strong>How to Play</strong> button explains everything.
         </p>
         <p class="panel-version">Build <strong id="versionLabel">—</strong></p>
         </div>
@@ -206,6 +197,8 @@
           <button id="dailyButton" class="secondary" type="button">Daily Challenge</button>
         </div>
 
+        <button id="rulesButton" class="ghost rules-open" type="button">📖 How to Play</button>
+
         <!-- Dev-only: shown solely to the playtest account (see menu.js). An
              immune run is never submitted to the leaderboard. -->
         <div class="playtest-row hidden" id="playtestRow">
@@ -217,6 +210,165 @@
           <h3>Daily Top 10 <span class="sub">· cells uncovered</span></h3>
           <ol id="leaderboardList"></ol>
         </div>
+      </div>
+    </div>
+
+    <!-- THE RULEBOOK. Opened from the home screen only. Everything the game will
+         never stop to explain mid-run, in one place you can read at your own pace. -->
+    <div class="overlay rules hidden" id="rulesOverlay">
+      <div class="rules-sheet">
+        <div class="rules-head">
+          <h1>How to Play</h1>
+          <button id="rulesClose" class="ghost rules-x" type="button">✕ Close</button>
+        </div>
+
+        <p class="rules-lead">
+          You are somewhere you shouldn't be: an endless dark maze that is already
+          inhabited. You cannot fight anything here. You survive by seeing without
+          being seen, and by knowing when to stand still in the dark.
+        </p>
+
+        <section class="rules-sec">
+          <h2>The goal</h2>
+          <p>
+            Explore. Your score is the number of <strong>distinct cells</strong> you
+            set foot in — so wandering into new corridors is everything, and pacing
+            the same ground counts for nothing. There is no finish line. You go until
+            something catches you.
+          </p>
+        </section>
+
+        <section class="rules-sec">
+          <h2>Controls</h2>
+          <table class="rules-keys">
+            <tr><th>PC</th><td></td></tr>
+            <tr><td class="k">WASD</td><td>Move</td></tr>
+            <tr><td class="k">Mouse</td><td>Look</td></tr>
+            <tr><td class="k">Left click</td><td>Send sonar <span class="dim">(rebindable in Settings)</span></td></tr>
+            <tr><td class="k">Q</td><td>Toggle running</td></tr>
+            <tr><td class="k">E</td><td>Interact — keypads, terminals, vents, lockers</td></tr>
+            <tr><td class="k">F</td><td>Use the selected hotbar item</td></tr>
+            <tr><td class="k">1–9 / scroll</td><td>Pick a hotbar slot</td></tr>
+            <tr><td class="k">Esc</td><td>Pause</td></tr>
+            <tr><th>Mobile</th><td></td></tr>
+            <tr><td class="k">Left half</td><td>Move</td></tr>
+            <tr><td class="k">Right half</td><td>Look</td></tr>
+            <tr><td class="k">Tap a slot</td><td>Select it</td></tr>
+            <tr><td class="k">USE</td><td>Use item, or act on the on-screen prompt</td></tr>
+          </table>
+        </section>
+
+        <section class="rules-sec">
+          <h2>Seeing — the sonar</h2>
+          <p>
+            The world is pitch black. <strong>Send Sonar</strong> fires a ring that
+            lights up every surface it sweeps over, which then fades back to black
+            over about fifteen seconds — like glow-in-the-dark.
+          </p>
+          <ul>
+            <li>It costs energy, and it has a <strong>17.5-second cooldown</strong>.
+              The button (and the radar ring) fills back up as it recharges. You get
+              one look, and then a couple of seconds of true darkness before the next.</li>
+            <li>The <strong>radar</strong>, bottom-right, maps the walls around you when
+              you ping — through walls and round corners. It's a proximity sense, not a
+              map of the level. Cyan marks a gap you can fit through.</li>
+            <li><strong>A ping is loud.</strong> Everything within earshot comes to look
+              — even things that had given up on you. And for three seconds after,
+              anything with a clear line to you can see you at <em>any</em> distance.
+              Fire from behind a corner, never standing in the open.</li>
+          </ul>
+        </section>
+
+        <section class="rules-sec danger">
+          <h2>Being seen — the most important rule</h2>
+          <p>There are two ways the inhabitants find you, and the second is the one that kills:</p>
+          <ul>
+            <li><strong>Up close.</strong> Within about two and a half cells they can pick
+              you out of the dark on their own — behind you, round a corner, anywhere.</li>
+            <li><strong>Eye contact.</strong> If one is on your screen <em>and</em> it is
+              facing you, it sees you — at <strong>any distance whatsoever</strong>. A thing
+              wandering across a junction with its back turned is safe to watch. The moment
+              it turns towards you while you're looking at it, you've locked eyes, and it
+              is coming.</li>
+          </ul>
+          <p>
+            And if you <strong>hold</strong> that eye contact for more than two seconds, it
+            <strong>fixates</strong>: ten seconds of pursuit that tracks you through walls
+            and cannot be shaken or waited out. Only a crucifix ends it.
+          </p>
+          <p class="rules-punch">So the golden rule is: <strong>look away.</strong> Watching a distant thing is how it gets you.</p>
+        </section>
+
+        <section class="rules-sec">
+          <h2>The inhabitants</h2>
+          <p>
+            They were here before you. Left alone they wander their own routes. Once one
+            is genuinely hunting you it moves faster than your walk — but slower than your
+            sprint, so you can always outrun it in a straight line.
+          </p>
+          <ul>
+            <li>Chase it long enough without being caught and it <strong>gives up</strong>,
+              wandering off and ignoring you for a while. Use that quiet.</li>
+            <li>The <strong>danger meter</strong>, top-left, fills as the nearest one closes
+              in. It never tells you which direction — only that it's getting worse.</li>
+            <li>Their eyes give off a faint red glow. Sometimes that's your only warning.</li>
+            <li>One that catches you dies doing it — small comfort, but the maze is quieter
+              for it.</li>
+          </ul>
+        </section>
+
+        <section class="rules-sec">
+          <h2>Staying alive</h2>
+          <ul>
+            <li><strong>Energy</strong> drains while you run and when you ping; walking
+              slowly refills it. Run out and you can only walk.</li>
+            <li><strong>Meat</strong> lying in the maze restores energy. Stacks deep.</li>
+            <li><strong>Torch</strong> — a narrow beam that lights the way ahead, but shine
+              it at an entity and you <em>enrage</em> it. Each torch is one full burn.</li>
+            <li><strong>Crucifix</strong> — your panic button, and rare. It blinds every
+              entity in the maze at once, wipes their memory of you entirely, and gives you
+              a burst of speed. The only thing that ends a fixation. Carry it for the moment
+              you truly need it.</li>
+            <li><strong>Broken windows</strong> — a smashed hole in a wall you can vault
+              through and they cannot follow. They can still see you through it, so it buys
+              distance, not escape.</li>
+          </ul>
+        </section>
+
+        <section class="rules-sec">
+          <h2>Safe rooms</h2>
+          <p>
+            Now and then the halls open into a sealed room with a heavy door. It's the one
+            place you're truly safe — and getting safe is what makes you unsafe.
+          </p>
+          <ol>
+            <li>A <strong>ten-digit code</strong> is painted on the door. Read it, and
+              remember it — the keypad's screen covers the door while you type, so you enter
+              it blind. You can leave and come back; it keeps what you've entered.</li>
+            <li>Enter the code, then <strong>shove the door open with your body</strong> and
+              step inside. The door is deafening — everything within two chunks comes to the
+              doorway — but it holds against anything. What you've bought is a crowd outside
+              the only way out.</li>
+            <li>Finish the <strong>terminal</strong> task and the things outside scatter, and
+              the <strong>locker</strong> opens with a reward inside.</li>
+            <li>The door only works <strong>once</strong>: walk back out and it never shuts
+              again.</li>
+            <li>The <strong>vent</strong> in the back wall is a second way out that only you
+              fit through — but pry it open and it can't be closed, and it's how they'll get
+              in. Use it to leave, not to hide.</li>
+          </ol>
+        </section>
+
+        <section class="rules-sec">
+          <h2>Seeds &amp; the daily challenge</h2>
+          <p>
+            Every maze comes from a <strong>seed</strong> — the same seed is the same maze,
+            everywhere, for everyone. The <strong>Daily Challenge</strong> is one shared seed
+            per day; how far you explore it goes on the leaderboard.
+          </p>
+        </section>
+
+        <button id="rulesCloseBottom" class="rules-open" type="button">Got it — back to the menu</button>
       </div>
     </div>
 

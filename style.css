@@ -1613,3 +1613,33 @@ select:focus {
   .rules-sheet { margin: 16px auto; padding: 20px 18px 26px; }
   .rules-head h1 { font-size: 1.4rem; }
 }
+
+/* ---------------------------------------------------------------------------
+   EXHAUSTION VIGNETTE
+   The edges of the screen darken and close in as energy drops — tunnel vision.
+   Opacity is set from game.js every frame; the .spent class adds a slow pulse
+   (a heaving-chest breath) once you're genuinely on empty.
+   --------------------------------------------------------------------------- */
+.vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 4; /* over the world, under the HUD and overlays */
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 32%,
+    rgba(0, 0, 0, 0.55) 72%,
+    rgba(0, 0, 0, 0.92) 100%
+  );
+  transition: opacity 0.25s linear;
+}
+
+.vignette.spent {
+  animation: vignetteBreath 2.4s ease-in-out infinite;
+}
+
+@keyframes vignetteBreath {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}

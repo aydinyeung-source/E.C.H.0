@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.58.0";
+const VERSION = "v2.59.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -37,6 +37,7 @@ const gameOverDistance = document.getElementById("gameOverDistance");
 const tryAgainButton = document.getElementById("tryAgainButton");
 const energyBar = document.getElementById("energyBar");
 const energyFill = document.getElementById("energyFill");
+const energyVignette = document.getElementById("energyVignette");
 const pauseOverlay = document.getElementById("pauseOverlay");
 const resumeButton = document.getElementById("resumeButton");
 const homeButton = document.getElementById("homeButton");
@@ -231,6 +232,8 @@ function setPlaying(v) {
     interactHeld = false;
     doorBar.classList.add("hidden");
     usePrompt.classList.add("hidden");
+    energyVignette.style.opacity = 0; // don't leave the dark closed in over a menu
+    energyVignette.classList.remove("spent");
   }
   player.enabled = v;
   playtestTag.classList.toggle("hidden", !(v && run.playtest));
@@ -249,6 +252,16 @@ let runMode = false; // toggled with Q
 const ENERGY_MAX = 150;
 const RUN_DRAIN = 7;   // energy per second while running and moving
 const WALK_REGEN = 4;  // energy per second regained while walking (not running)
+
+// EXHAUSTION. Run yourself to empty and you can't run again until you've caught
+// your breath — you must walk your energy back up to RUN_RECOVER first.
+//
+// This is a hysteresis LATCH, and it fixes a real bug: without it, at 0 energy you'd
+// drop to a walk for one frame, regain a sliver, run again, hit 0, and flicker like
+// that forever — which nets you a speed FASTER than walking on empty, exactly what
+// running out is supposed to prevent. The latch means empty really means empty.
+const RUN_RECOVER = ENERGY_MAX * 0.2; // ~7.5s of walking to get your wind back
+let exhausted = false;
 // Energy per sonar reveal. Raised from 4: a full bar used to buy ~37 pings, which
 // is enough that you never had to think about it. At 6 it's ~25, and on a long run
 // the question "can I afford to look?" starts having a real answer.
@@ -277,15 +290,21 @@ const WALK_REGEN = 4;  // energy per second regained while walking (not running)
 // point of the whole system — a stretch of pure darkness, every single cycle, where
 // all you have is the map in your head and whatever you can hear.
 //
-// Both numbers stay DERIVED rather than typed in. The cooldown is GLOW_TIME +
-// DARK_GAP (imported, not copied), so retuning how long walls take to fade can never
-// silently swallow the darkness; and the cost is a fraction of the bar, so retuning
-// the bar can't quietly make pinging free. Neither can drift out of meaning behind
-// your back.
+// The cooldown stays DERIVED from GLOW_TIME (imported, not copied), so retuning how
+// long walls take to fade can never silently swallow the darkness.
 const DARK_GAP = 2.5;
-const SONAR_COST = ENERGY_MAX * 0.15;
 const SONAR_COOLDOWN = GLOW_TIME + DARK_GAP; // 17.5s
 let sonarTimer = 0; // seconds until the sonar is live again
+
+// A ping costs a QUARTER OF WHAT YOU HAVE LEFT, plus a flat 6 on top. So it's cheap
+// when you're topped up and brutal when you're nearly empty — a percentage bites
+// hardest exactly when you can least afford it. And you can't fire below SONAR_FLOOR
+// at all: you need a real reserve to sound the ring, not just the dregs.
+const SONAR_FLOOR = 6;           // can't ping below this
+const SONAR_PCT = 0.25;          // ...and it takes a quarter of the rest
+function sonarCost() {
+  return energy * SONAR_PCT + SONAR_FLOOR;
+}
 
 // Crucifix: the panic button, and rare. Brandishing it does three things at once
 // for WARD_TIME seconds: BLINDS every entity in the world (not just the nearest),
@@ -651,6 +670,7 @@ function startRun(rawSeedText, label, isDaily) {
   dead = false;
   heartTimer = 0;
   energy = ENERGY_MAX;
+  exhausted = false;
   runMode = false;
   resetHotbar();
   // You always set out with one crucifix and one meat — a single escape and a
@@ -972,16 +992,17 @@ sonarKeySelect.addEventListener("change", () => {
 
 function fireSonar() {
   if (!playing) return;
-  if (saferooms.terminal) return; // you're nose-to-screen; you can't ping
-  if (sonarTimer > 0) return;     // still recharging — see SONAR_COOLDOWN
+  if (saferooms.terminal) return;   // you're nose-to-screen; you can't ping
+  if (sonarTimer > 0) return;       // still recharging — see SONAR_COOLDOWN
+  if (energy < SONAR_FLOOR) return; // not enough left to sound the ring at all
   sonarTimer = SONAR_COOLDOWN;
+  energy = Math.max(0, energy - sonarCost()); // quarter of the rest, plus a flat 6
   sonar.pulse(player.pos);
   radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
   // The sonar itself is SILENT to the player — no ping, no blip. The entities
   // still "hear" it in-fiction and converge on you; you just don't get an audio
   // cue back. All you have is the visual reveal.
   entities.hearSonar(player.pos.x, player.pos.z);
-  energy = Math.max(0, energy - SONAR_COST); // revealing costs energy
 }
 
 canvas.addEventListener("mousedown", (e) => {
@@ -1242,8 +1263,11 @@ function loop(now) {
   if (deathCooldown > 0) deathCooldown -= dt;
   if (sonarTimer > 0) sonarTimer -= dt;
 
-  // Apply run intent before moving: you can only run with energy to spare.
-  player.running = runMode && energy > 0;
+  // Apply run intent before moving: you can only run with energy in hand, and once
+  // you hit empty you're LOCKED to a walk until you've recovered to RUN_RECOVER.
+  if (energy <= 0) exhausted = true;
+  else if (energy >= RUN_RECOVER) exhausted = false;
+  player.running = runMode && !exhausted && energy > 0;
   player.update(dt, world);
   audio.updateListener(camera); // 3D listener follows your head every frame
   world.update(player.pos);
@@ -1277,6 +1301,13 @@ function loop(now) {
     for (const type of taken) addItem(type, 1);
     if (taken.length) audio.pickup();
     energyFill.style.width = (energy / ENERGY_MAX) * 100 + "%";
+
+    // Exhaustion vignette: nothing until you drop under ~45%, then the dark closes
+    // in, hardest as you approach empty. The pulse kicks in once you're truly spent.
+    const lowThresh = ENERGY_MAX * 0.45;
+    const drain = Math.max(0, (lowThresh - energy) / lowThresh); // 0 at 45% .. 1 at empty
+    energyVignette.style.opacity = (drain * 0.9).toFixed(3);
+    energyVignette.classList.toggle("spent", energy <= ENERGY_MAX * 0.12);
     // The torch gauge only appears once you actually own a torch.
     const showTorch = hasItem("torch");
     torchBar.classList.toggle("hidden", !showTorch);

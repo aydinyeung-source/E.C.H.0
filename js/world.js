@@ -841,26 +841,32 @@ export class World {
     // --- Safe-room surfaces -------------------------------------------------
     // Concrete and steel, and not a trace of yellow.
     //
-    // THE ROOM IS LIT. Everywhere else in this game is pitch black until the sonar
-    // reveals it — but a safe room has its own emergency lamp, and you should be
-    // able to SEE that through the doorway rather than having to ping the inside
-    // of your own refuge. `emissiveMap` is the trick: the emissive contribution is
-    // multiplied by the texture, so the surfaces glow with their own detail
-    // instead of turning into flat coloured cards. The tint is the dull red of the
-    // lamp above them.
+    // THE ROOM IS ALWAYS LIT, and never goes dark. Everywhere else in this game is
+    // pitch black until the sonar reveals it — but a safe room has its own emergency
+    // lamp, and you should be able to SEE that through the doorway rather than
+    // pinging the inside of your own refuge.
+    //
+    // Two things guarantee it can't fall dark. First, a FLAT emissive base with no
+    // texture map — every surface glows a uniform dull red no matter what, so there
+    // are no black patches. Second, on top of that, an emissiveMap-modulated layer
+    // (emissiveIntensity boosts it) adds the concrete/tread detail so it isn't a
+    // flat card. The base is the floor of brightness; the map only ever ADDS to it.
+    // (A MeshPhong can't stack two emissive layers, so the base brightness lives in
+    // the `emissive` colour and the map rides along with a healthy intensity — the
+    // map's texels are mid-grey, never near-black, so they only lift the floor.)
     const concrete = makeConcreteTexture();
     concrete.repeat.set(2, 1);
     const tread = makeTreadTexture();
     this.roomWallMat = new THREE.MeshPhongMaterial({
       color: 0xffffff, shininess: 4, map: concrete,
-      emissive: 0x6b3a30, emissiveMap: concrete,
+      emissive: 0x9a5648, emissiveMap: concrete, emissiveIntensity: 1.5,
     });
     this.roomFloorMat = new THREE.MeshPhongMaterial({
       color: 0xffffff, shininess: 22, map: tread,
-      emissive: 0x5e3128, emissiveMap: tread,
+      emissive: 0x8a4e3c, emissiveMap: tread, emissiveIntensity: 1.5,
     });
     this.roomCeilMat = new THREE.MeshPhongMaterial({
-      color: 0x2a2e30, shininess: 0, emissive: 0x2a1512,
+      color: 0x2a2e30, shininess: 0, emissive: 0x452420, // flat, no map — never dark
     });
     this.roomGeo = new THREE.PlaneGeometry(CELL * 2, CELL * 2); // a room is exactly 2x2 cells
     this.liningGeo = new THREE.BoxGeometry(1, 1, 1);

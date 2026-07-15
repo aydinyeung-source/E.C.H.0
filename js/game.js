@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.70.0";
+const VERSION = "v2.71.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -179,6 +179,7 @@ function announce(text, seconds) {
 let dead = false;    // true once an entity has caught the player
 let heartTimer = 0;  // countdown to the next heartbeat (tempo scales with proximity)
 let playing = false; // actively in a run (pointer-locked on PC, or started on mobile)
+let openingPingPending = false; // one free orientation ping per run, at first start
 
 // --- Device mode (PC or Mobile) ---------------------------------------------
 // On PC we use pointer lock; on mobile we drive everything from touch, so the
@@ -696,6 +697,7 @@ function startRun(rawSeedText, label, isDaily) {
   exhausted = false;
   combineTimer = 0;
   combinePrompt = null;
+  openingPingPending = true; // the one free look, spent when play actually begins
   runMode = false;
   resetHotbar();
   // You always set out with one crucifix and one meat — a single escape and a
@@ -748,8 +750,17 @@ function beginPlay() {
   pauseOverlay.classList.add("hidden");
   rulesOverlay.classList.add("hidden"); // never leave the rulebook over the game
   setPlaying(true);
-  sonar.pulse(player.pos); // opening ping (free, doesn't alert entities)
-  radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
+
+  // The free orientation ping fires ONCE, when the run first begins — not on every
+  // resume. beginPlay() runs again each time you unpause, and re-pinging there was a
+  // free vision refresh: pause, unpause, and see the whole area again for nothing,
+  // no energy and no cooldown. Now resuming just drops you back exactly where you
+  // left off, in whatever light was left.
+  if (openingPingPending) {
+    openingPingPending = false;
+    sonar.pulse(player.pos);
+    radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
+  }
 }
 
 function showPause() {

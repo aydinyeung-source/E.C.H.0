@@ -636,7 +636,7 @@ export class SafeRooms {
     // when you get in, and it's what you came for.
     const termGroup = new THREE.Group();
     termGroup.position.set(back.termX, 0, back.termZ);
-    termGroup.rotation.y = back.yaw;
+    termGroup.rotation.y = back.termYaw;
     termGroup.add(this._box(this.metalMat, 1.3, 0.72, 0.62, 0, 0.36, 0));      // desk
     termGroup.add(this._box(this.darkMetalMat, 1.36, 0.06, 0.68, 0, 0.75, 0)); // worktop
     termGroup.add(this._box(this.darkMetalMat, 1.0, 0.03, 0.3, 0, 0.79, 0.2)); // keyboard shelf
@@ -656,7 +656,7 @@ export class SafeRooms {
     // i.e. invisible, which is why it seemed like there was no locker at all.
     const lockGroup = new THREE.Group();
     lockGroup.position.set(back.lockX, 0, back.lockZ);
-    lockGroup.rotation.y = back.yaw;
+    lockGroup.rotation.y = back.lockYaw;
     lockGroup.add(this._box(this.metalMat, 0.96, 1.9, 0.46, 0, 0.95, 0));
     const lockDoor = this._box(this.darkMetalMat, 0.86, 1.76, 0.05, 0, 0.95, 0.25);
     lockGroup.add(lockDoor);
@@ -813,22 +813,35 @@ export class SafeRooms {
   // (The old hallway search for a wall to bolt the KeySwitch onto lived here. The
   //  keypad is on the door now, so there is nothing to hunt for.)
 
-  // The wall opposite the door: where the terminal and the locker live, so you
-  // are always facing AWAY from the door while you work. That's the whole tension.
+  // Where the terminal and the locker go.
+  //
+  // NOT on the back wall any more, and that was a real bug. The vent lives on the
+  // back wall (opposite the door), but the room is 2x2 cells, so the vent sits at
+  // the centre of ONE of the two back-wall cells — about 3m off the room's centre
+  // line. The terminal and locker used to sit on that SAME wall, 2.2-2.4m off
+  // centre, so whichever cell the vent landed in, it jammed straight into one of
+  // them: you couldn't reach the locker, and the vent looked (and behaved like it
+  // was) blocked.
+  //
+  // They now go on the two SIDE walls — the ones perpendicular to the door->vent
+  // axis — which are always clear of both openings. Each faces in across the room.
   _backWall(s) {
-    const inset = 0.75;
+    const inset = 0.65;
     const mid = { x: s.cxWorld, z: s.czWorld };
-    const side = s.door.side;
-    if (side === "W") {
-      return { termX: s.maxX - inset, termZ: mid.z - 2.2, lockX: s.maxX - inset, lockZ: mid.z + 2.4, yaw: -Math.PI / 2 };
+    const axisX = s.door.side === "W" || s.door.side === "E"; // door<->vent runs along X
+
+    if (axisX) {
+      // Side walls are the south (minZ) and north (maxZ) walls.
+      return {
+        termX: mid.x, termZ: s.minZ + inset, termYaw: 0,          // faces +Z, into the room
+        lockX: mid.x, lockZ: s.maxZ - inset, lockYaw: Math.PI,    // faces -Z
+      };
     }
-    if (side === "E") {
-      return { termX: s.minX + inset, termZ: mid.z - 2.2, lockX: s.minX + inset, lockZ: mid.z + 2.4, yaw: Math.PI / 2 };
-    }
-    if (side === "S") {
-      return { termX: mid.x - 2.2, termZ: s.maxZ - inset, lockX: mid.x + 2.4, lockZ: s.maxZ - inset, yaw: Math.PI };
-    }
-    return { termX: mid.x - 2.2, termZ: s.minZ + inset, lockX: mid.x + 2.4, lockZ: s.minZ + inset, yaw: 0 };
+    // Door is N/S, so the axis runs along Z; side walls are west (minX) and east (maxX).
+    return {
+      termX: s.minX + inset, termZ: mid.z, termYaw: Math.PI / 2,  // faces +X
+      lockX: s.maxX - inset, lockZ: mid.z, lockYaw: -Math.PI / 2, // faces -X
+    };
   }
 
   // The panic button sits INSIDE, on the wall next to the door — within a lunge of
@@ -999,12 +1012,17 @@ export class SafeRooms {
     room.wasInside = inside;
 
     // A VENT IS AN EXIT, NOT AN ENTRANCE. The crawl bound only exists while you are
-    // standing INSIDE the room, so you can never wriggle in through the back of a
-    // safe room and skip the door, the code and the whole point of the place. From
-    // the corridor an open vent is just a hole with a wall in it.
-    // (Once it's BREACHED that stops applying — at that point it isn't a vent, it's
-    // damage, and anything can come through it.)
-    const passable = inside && room.vent.state === "open";
+    // INSIDE the room — OR mid-crawl — so you can never wriggle in through the back
+    // of a safe room and skip the door and the whole point of the place. From the
+    // corridor an open vent is just a hole with a wall in it.
+    //
+    // `|| player.vault` is the fix for getting STUCK. A crawl carries you from
+    // inside to outside; the instant you cross the boundary `inside` goes false, and
+    // without this the hole would slam solid around you while you were still in it.
+    // Keeping it passable until the crawl actually finishes lets you all the way
+    // through. (Once it's BREACHED this stops mattering — it's just damage then, and
+    // anything comes through.)
+    const passable = (inside || !!player.vault) && room.vent.state === "open";
     if (passable !== room.ventPassable) {
       room.ventPassable = passable;
       this._rebuildBounds();

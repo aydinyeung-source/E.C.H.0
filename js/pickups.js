@@ -41,6 +41,12 @@ export class Pickups {
     this.crossMat = new THREE.MeshBasicMaterial({ color: 0xf2ead0 });
     this.crossShaftGeo = new THREE.BoxGeometry(0.6, 0.08, 0.08);
     this.crossBarGeo = new THREE.BoxGeometry(0.08, 0.08, 0.34);
+    // The two halves of a broken crucifix. A jagged darker cap marks the snapped
+    // end of each, so a top and a bottom read as pieces of the same object.
+    this.crossTopGeo = new THREE.BoxGeometry(0.26, 0.08, 0.08); // top of the shaft
+    this.crossBotGeo = new THREE.BoxGeometry(0.36, 0.08, 0.08); // the longer lower shaft
+    this.crossBreakMat = new THREE.MeshBasicMaterial({ color: 0x8a8069 }); // snapped, dirtier
+    this.crossBreakGeo = new THREE.BoxGeometry(0.05, 0.085, 0.085);
     // The torch, modelled ON ITS SIDE (the cylinder is rotated to lie along X).
     this.torchBodyGeo = new THREE.CylinderGeometry(0.09, 0.11, 0.5, 8);
     this.torchBodyMat = new THREE.MeshBasicMaterial({ color: 0x4a4a52 });
@@ -87,6 +93,20 @@ export class Pickups {
       const bar = new THREE.Mesh(this.crossBarGeo, this.crossMat);
       bar.position.x = 0.14;
       group.add(shaft, bar);
+    } else if (type === "cruxtop") {
+      // The top half: the crossbar plus the short stub of shaft above the break.
+      const shaft = new THREE.Mesh(this.crossTopGeo, this.crossMat);
+      const bar = new THREE.Mesh(this.crossBarGeo, this.crossMat);
+      bar.position.x = 0.05;
+      const brk = new THREE.Mesh(this.crossBreakGeo, this.crossBreakMat);
+      brk.position.x = -0.13; // the snapped end
+      group.add(shaft, bar, brk);
+    } else if (type === "cruxbot") {
+      // The bottom half: just the long lower shaft, snapped at the top.
+      const shaft = new THREE.Mesh(this.crossBotGeo, this.crossMat);
+      const brk = new THREE.Mesh(this.crossBreakGeo, this.crossBreakMat);
+      brk.position.x = 0.18;
+      group.add(shaft, brk);
     } else {
       // Torch on its side — the cylinders are rotated to run along X.
       const body = new THREE.Mesh(this.torchBodyGeo, this.torchBodyMat);
@@ -110,7 +130,7 @@ export class Pickups {
         const group = this._mesh(spec.type);
         // Rest it ON the floor, and spin it any which way with a slight tumble, so
         // it reads as something dropped rather than stood on display.
-        const restY = spec.type === "meat" ? 0.16 : spec.type === "torch" ? 0.11 : 0.06;
+        const restY = spec.type === "meat" ? 0.16 : spec.type === "torch" ? 0.11 : 0.05;
         group.position.set(spec.x, restY, spec.z);
         group.rotation.y = Math.random() * Math.PI * 2;
         group.rotation.z = (Math.random() - 0.5) * 0.18;

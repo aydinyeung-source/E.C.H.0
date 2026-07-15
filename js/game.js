@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.62.0";
+const VERSION = "v2.63.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -234,6 +234,8 @@ function setPlaying(v) {
     usePrompt.classList.add("hidden");
     energyVignette.style.opacity = 0; // don't leave the dark closed in over a menu
     energyVignette.classList.remove("spent");
+    combineTimer = 0;
+    combinePrompt = null;
   }
   player.enabled = v;
   playtestTag.classList.toggle("hidden", !(v && run.playtest));
@@ -313,6 +315,15 @@ const WARD_TIME = 7;        // seconds of blindness + speed
 const WARD_SPEED_BOOST = 1.45;
 let boostTimer = 0;
 
+// Assembling a crucifix from its two halves. You have to STOP — hold still with a
+// top and a bottom in your pack — and fit them together over COMBINE_TIME seconds.
+// Move, and the progress resets: you can't do it on the run, which means finding a
+// safe moment to stand in the dark and work, exactly when you most want the finished
+// thing in your hand.
+const COMBINE_TIME = 2.2;
+let combineTimer = 0;
+let combinePrompt = null; // shown in the [E]-prompt slot while assembling
+
 // (The halon vent lived here. It was a free undo for every mistake a safe room can
 //  make you commit — and a room with a get-out-of-jail card in it is a room where
 //  none of the other decisions cost you anything.)
@@ -378,6 +389,8 @@ const STACK_LIMITS = {
   meat: 32,
   torch: 4,
   crucifix: 4,
+  cruxtop: 4, // the two halves of a broken crucifix; combine them by stopping
+  cruxbot: 4,
 };
 
 function stackLimit(type) {
@@ -422,6 +435,8 @@ function renderHotbar() {
     icon.classList.toggle("meat", filled && item.type === "meat");
     icon.classList.toggle("crucifix", filled && item.type === "crucifix");
     icon.classList.toggle("torch", filled && item.type === "torch");
+    icon.classList.toggle("cruxtop", filled && item.type === "cruxtop");
+    icon.classList.toggle("cruxbot", filled && item.type === "cruxbot");
     el.querySelector(".slot-count").textContent = filled && item.count > 1 ? item.count : "";
   }
 }
@@ -671,6 +686,8 @@ function startRun(rawSeedText, label, isDaily) {
   heartTimer = 0;
   energy = ENERGY_MAX;
   exhausted = false;
+  combineTimer = 0;
+  combinePrompt = null;
   runMode = false;
   resetHotbar();
   // You always set out with one crucifix and one meat — a single escape and a
@@ -1113,6 +1130,44 @@ function updateTorch(dt) {
   }
 }
 
+// --- Assembling a crucifix from its halves ----------------------------------
+// You must have BOTH a top and a bottom, and you must be standing still and not at
+// a terminal. Hold that for COMBINE_TIME and the two halves are consumed and a whole
+// crucifix appears. Any movement resets the timer — the "stop to combine" rule.
+function updateCombine(dt) {
+  // Room for the finished crucifix: an existing space now, OR a half-slot that will
+  // empty when consumed (count === 1). Without this, combining with a full pack
+  // would eat both halves and drop the crucifix on the floor of the void.
+  const roomForCrux =
+    capacityFor("crucifix") > 0 ||
+    hotbar.some((s) => (s.type === "cruxtop" || s.type === "cruxbot") && s.count === 1);
+
+  const canCombine = hasItem("cruxtop") && hasItem("cruxbot") && roomForCrux;
+  const still = !player.moving && !saferooms.terminal;
+
+  if (!canCombine || !still) {
+    combineTimer = 0;
+    combinePrompt = null;
+    return;
+  }
+
+  combineTimer += dt;
+  if (combineTimer >= COMBINE_TIME) {
+    combineTimer = 0;
+    combinePrompt = null;
+    // Consume one of each half and hand over the finished item.
+    inv.take("cruxtop");
+    inv.take("cruxbot");
+    addItem("crucifix", 1);
+    audio.ward(); // the same clean chime the crucifix rings out with
+    announce("CRUCIFIX ASSEMBLED", 2);
+    return;
+  }
+
+  const pct = Math.round((combineTimer / COMBINE_TIME) * 100);
+  combinePrompt = `STAND STILL · ASSEMBLING CRUCIFIX ${pct}%`;
+}
+
 // --- The danger bar ---------------------------------------------------------
 // Proximity to the NEAREST entity, and nothing else. No direction, no count, no
 // names. It answers exactly one question — "is this getting worse?" — which is the
@@ -1175,7 +1230,13 @@ function updateSafeRoomHud() {
     doorLabel.textContent = hud.vent ? "VENT" : "DOOR";
   }
 
-  const text = announceTimer > 0 ? announceText : saferooms.prompt ? saferooms.prompt.text : "";
+  // Priority: a transient announcement, then a safe-room prompt, then the crucifix
+  // assembly progress. Only one line ever shows.
+  const text =
+    announceTimer > 0 ? announceText
+    : saferooms.prompt ? saferooms.prompt.text
+    : combinePrompt ? combinePrompt
+    : "";
   usePrompt.textContent = text;
   usePrompt.classList.toggle("hidden", !text);
 
@@ -1291,6 +1352,10 @@ function loop(now) {
     // Your own movement bed: breathing + footsteps, looped while you move, louder
     // and faster when you run.
     audio.setMoving(player.moving, player.running);
+
+    // Assemble a crucifix from its halves: hold still with both, and it comes
+    // together over COMBINE_TIME. Moving (or being at a terminal) resets it.
+    updateCombine(dt);
 
     updateTorch(dt);
     if (entities.update(dt, player.pos, player.yaw, run.maxDistance, world)) die();

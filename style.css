@@ -576,6 +576,45 @@ button.secondary:hover {
   height: 10%;
 }
 
+/* The two halves of a broken crucifix. Top = the crossbar + a stub of shaft;
+   bottom = the lower length of shaft. Dimmer than the whole one so incomplete
+   reads as incomplete. */
+.slot-icon.cruxtop,
+.slot-icon.cruxbot {
+  position: relative;
+  background: none;
+}
+
+.slot-icon.cruxtop::before,
+.slot-icon.cruxtop::after,
+.slot-icon.cruxbot::before {
+  content: "";
+  position: absolute;
+  background: #cdc4a6;
+  box-shadow: 0 0 5px rgba(220, 210, 170, 0.55);
+}
+
+.slot-icon.cruxtop::before { /* the stub of shaft (upper third) */
+  left: 45%;
+  top: 0;
+  width: 10%;
+  height: 42%;
+}
+
+.slot-icon.cruxtop::after { /* crossbar */
+  left: 15%;
+  top: 26%;
+  width: 70%;
+  height: 10%;
+}
+
+.slot-icon.cruxbot::before { /* the lower shaft, on its own */
+  left: 45%;
+  top: 32%;
+  width: 10%;
+  height: 68%;
+}
+
 /* Holy flash when a crucifix is brandished. */
 .ward-flash {
   position: fixed;

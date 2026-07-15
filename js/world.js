@@ -69,10 +69,19 @@ const WINDOW_H = 2.2;      // top of the opening (lintel sits above it)
 // control the MIX, without either one dragging the other around.
 const CELL_LOOT_CHANCE = 0.05;
 // Weights must sum to 1. Order = the order they're tested against the roll.
+//
+// A crucifix comes two ways: a whole one, rarely, or as two HALVES you find
+// separately and assemble by stopping to fit them together. The halves are each
+// commoner than a whole one (7.5% vs 5%), but you need BOTH a top and a bottom, so
+// the assembly path trades "carry two useless bits and find a safe moment to stop"
+// for a better hit rate. Either way the finished crucifix stays something you
+// hunt for, not something you're handed.
 const LOOT_WEIGHTS = [
-  ["meat", 0.75],     // ~1.35 / chunk
-  ["torch", 0.20],    // ~0.36 / chunk
-  ["crucifix", 0.05], // ~0.09 / chunk — one every ~11 chunks; the panic item stays rare
+  ["meat", 0.6],       // ~1.08 / chunk
+  ["torch", 0.2],      // ~0.36 / chunk
+  ["crucifix", 0.05],  // a whole one — ~0.09 / chunk
+  ["cruxtop", 0.075],  // top half (crossbar) — ~0.135 / chunk
+  ["cruxbot", 0.075],  // bottom half (shaft)  — ~0.135 / chunk
 ];
 const CHUNK_CELLS = 6;   // cells per chunk edge (bigger = longer unbroken halls)
 const CHUNK_SIZE = CELL * CHUNK_CELLS;

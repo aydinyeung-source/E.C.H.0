@@ -735,12 +735,13 @@ export function chunkItems(cx, cy) {
       //                good it did them.
       //   * TORCH    — the remains of an explorer who didn't make it. You're taking
       //                the light off the dead.
-      // So it lies wherever it fell. Spread across ~0.78 of the cell (leaving a
-      // margin off the walls so nothing clips into them), X and Z rolled
-      // independently. Every cell is walkable (the maze carves passages, it never
-      // seals a cell), so anywhere in it is reachable.
-      const ox = (hash2(i, j, 121) - 0.5) * CELL * 0.78;
-      const oz = (hash2(i, j, 221) - 0.5) * CELL * 0.78;
+      // So it lies wherever it fell — ANYWHERE in the cell, right up against a wall
+      // if that's where the dice land, not just the middle. Spread is 0.9 of the
+      // cell (the last sliver of margin only exists so a lump can't poke THROUGH a
+      // wall — it can still rest against one). X and Z rolled independently. Every
+      // cell is walkable, so anywhere in it is reachable.
+      const ox = (hash2(i, j, 121) - 0.5) * CELL * 0.9;
+      const oz = (hash2(i, j, 221) - 0.5) * CELL * 0.9;
       items.push({
         id: `${type}:${i}:${j}`, // stable id, so a collected item stays collected
         type,

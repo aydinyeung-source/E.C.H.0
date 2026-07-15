@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.71.0";
+const VERSION = "v2.71.1";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -1356,9 +1356,10 @@ function loop(now) {
     updateMenuScene(dt);
   }
 
-  // Crucifix adrenaline: a temporary speed multiplier.
+  // Crucifix adrenaline: a temporary speed multiplier. The countdown FREEZES while
+  // paused — you can't stretch the boost by pausing — but the boost itself stays on.
   if (boostTimer > 0) {
-    boostTimer -= dt;
+    if (playing) boostTimer -= dt;
     player.boost = WARD_SPEED_BOOST;
   } else {
     player.boost = 1;
@@ -1366,7 +1367,10 @@ function loop(now) {
 
   if (announceTimer > 0) announceTimer -= dt;
   if (deathCooldown > 0) deathCooldown -= dt;
-  if (sonarTimer > 0) sonarTimer -= dt;
+  // The sonar cooldown only recharges during ACTIVE play. If it ticked down while
+  // paused, you could sit on the pause screen and let the dish refill for free —
+  // the same free-recharge the resume ping used to be.
+  if (playing && sonarTimer > 0) sonarTimer -= dt;
 
   // Apply run intent before moving: you can only run with energy in hand, and once
   // you hit empty you're LOCKED to a walk until you've recovered to RUN_RECOVER.

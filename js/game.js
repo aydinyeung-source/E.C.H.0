@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.63.0";
+const VERSION = "v2.64.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -254,6 +254,8 @@ let runMode = false; // toggled with Q
 const ENERGY_MAX = 150;
 const RUN_DRAIN = 7;   // energy per second while running and moving
 const WALK_REGEN = 4;  // energy per second regained while walking (not running)
+const REST_REGEN = 5;  // energy per second while standing still — resting is faster
+                       // than walking, so stopping to catch your breath is worth it
 
 // EXHAUSTION. Run yourself to empty and you can't run again until you've caught
 // your breath — you must walk your energy back up to RUN_RECOVER first.
@@ -315,14 +317,15 @@ const WARD_TIME = 7;        // seconds of blindness + speed
 const WARD_SPEED_BOOST = 1.45;
 let boostTimer = 0;
 
-// Assembling a crucifix from its two halves. You have to STOP — hold still with a
-// top and a bottom in your pack — and fit them together over COMBINE_TIME seconds.
-// Move, and the progress resets: you can't do it on the run, which means finding a
-// safe moment to stand in the dark and work, exactly when you most want the finished
-// thing in your hand.
-const COMBINE_TIME = 2.2;
-let combineTimer = 0;
-let combinePrompt = null; // shown in the [E]-prompt slot while assembling
+// Assembling a crucifix from its two halves. It's a DELIBERATE act: select the top
+// half and press USE, and — provided you're also carrying a bottom — you spend
+// COMBINE_COST energy and work at it for COMBINE_TIME seconds before the whole
+// crucifix is yours. It's a channel (a countdown), not a stand-still: once started
+// it runs to completion.
+const COMBINE_TIME = 3;
+const COMBINE_COST = 5;
+let combineTimer = 0;     // seconds LEFT on an in-progress assembly (0 = idle)
+let combinePrompt = null; // shown in the prompt slot while assembling
 
 // (The halon vent lived here. It was a free undo for every mistake a safe room can
 //  make you commit — and a room with a get-out-of-jail card in it is a room where
@@ -549,7 +552,12 @@ function useSelected() {
       wardFlash.classList.remove("flash");
       wardFlash.classList.add("hidden");
     }, 600);
+  } else if (s.type === "cruxtop") {
+    // USE on the top half starts the assembly (needs a bottom, room, and energy).
+    startCombine();
   }
+  // A lone bottom half (cruxbot) has no USE action — you drive the assembly from
+  // the top. It just sits in the pack until then.
 }
 
 function updateRunButton() {
@@ -1130,32 +1138,39 @@ function updateTorch(dt) {
   }
 }
 
-// --- Assembling a crucifix from its halves ----------------------------------
-// You must have BOTH a top and a bottom, and you must be standing still and not at
-// a terminal. Hold that for COMBINE_TIME and the two halves are consumed and a whole
-// crucifix appears. Any movement resets the timer — the "stop to combine" rule.
-function updateCombine(dt) {
-  // Room for the finished crucifix: an existing space now, OR a half-slot that will
-  // empty when consumed (count === 1). Without this, combining with a full pack
-  // would eat both halves and drop the crucifix on the floor of the void.
-  const roomForCrux =
+// Is there anywhere for a finished crucifix to go? An existing space now, OR a
+// half-slot that will empty when consumed (count === 1). Without this, assembling
+// with a full pack would eat both halves and drop the crucifix into the void.
+function roomForCrucifix() {
+  return (
     capacityFor("crucifix") > 0 ||
-    hotbar.some((s) => (s.type === "cruxtop" || s.type === "cruxbot") && s.count === 1);
+    hotbar.some((s) => (s.type === "cruxtop" || s.type === "cruxbot") && s.count === 1)
+  );
+}
 
-  const canCombine = hasItem("cruxtop") && hasItem("cruxbot") && roomForCrux;
-  const still = !player.moving && !saferooms.terminal;
+// Called from USE (see useSelected) when the top half is selected. Kicks off the
+// assembly channel if everything's in order. Returns true if it started.
+function startCombine() {
+  if (combineTimer > 0) return true;             // already at it
+  if (!hasItem("cruxtop") || !hasItem("cruxbot")) return false; // need both halves
+  if (!roomForCrucifix()) return false;          // no room for the result
+  if (energy < COMBINE_COST) return false;       // can't afford it
+  energy -= COMBINE_COST;                         // committed up front
+  combineTimer = COMBINE_TIME;
+  audio.pickup();                                 // a small click to say "started"
+  return true;
+}
 
-  if (!canCombine || !still) {
-    combineTimer = 0;
+// Advance an in-progress assembly. A plain countdown — no stand-still needed.
+function updateCombine(dt) {
+  if (combineTimer <= 0) {
     combinePrompt = null;
     return;
   }
-
-  combineTimer += dt;
-  if (combineTimer >= COMBINE_TIME) {
+  combineTimer -= dt;
+  if (combineTimer <= 0) {
     combineTimer = 0;
     combinePrompt = null;
-    // Consume one of each half and hand over the finished item.
     inv.take("cruxtop");
     inv.take("cruxbot");
     addItem("crucifix", 1);
@@ -1163,9 +1178,8 @@ function updateCombine(dt) {
     announce("CRUCIFIX ASSEMBLED", 2);
     return;
   }
-
-  const pct = Math.round((combineTimer / COMBINE_TIME) * 100);
-  combinePrompt = `STAND STILL · ASSEMBLING CRUCIFIX ${pct}%`;
+  const pct = Math.round((1 - combineTimer / COMBINE_TIME) * 100);
+  combinePrompt = `ASSEMBLING CRUCIFIX ${pct}%`;
 }
 
 // --- The danger bar ---------------------------------------------------------
@@ -1341,12 +1355,15 @@ function loop(now) {
 
   // Entities only hunt while actively playing (and alive).
   if (playing && !dead) {
-    // Running drains energy; walking slowly gives it back, so backing off to a
-    // walk is a real recovery option rather than just being slower.
+    // Running drains; walking gives a little back; STANDING STILL gives the most.
+    // So there's a real ladder of recovery — the more you slow down, the faster you
+    // catch your breath, and stopping dead is the quickest way back to full.
     if (player.running && player.moving) {
       energy = Math.max(0, energy - RUN_DRAIN * dt);
     } else if (player.moving) {
       energy = Math.min(ENERGY_MAX, energy + WALK_REGEN * dt);
+    } else {
+      energy = Math.min(ENERGY_MAX, energy + REST_REGEN * dt);
     }
 
     // Your own movement bed: breathing + footsteps, looped while you move, louder

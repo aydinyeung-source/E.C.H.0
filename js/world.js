@@ -365,6 +365,23 @@ function chunkCarved(cx, cy) {
   const j0 = cy * CHUNK_CELLS;
   const carved = new Set();
   const visited = new Set([i0 + "," + j0]);
+
+  // CARVE AROUND A SAFE ROOM. The room owns its own 2x2 block, so the maze must not
+  // tunnel into it — pre-mark those cells as visited and the DFS routes around them.
+  // This is what keeps the OUTSIDE connected: the spanning tree now spans only the
+  // non-room cells, so no corridor's only route to somewhere relies on a cell the
+  // room is about to seal off. (Without this the room could sever the maze and strand
+  // you in a dead-end pocket beside it.) A 2x2 hole never disconnects a 6x6 grid — the
+  // room sits at offset 1..3, so a border of open cells always rings it.
+  const room = chunkRoom(cx, cy);
+  if (room) {
+    for (let a = 0; a < 2; a++) {
+      for (let b = 0; b < 2; b++) {
+        visited.add((room.ri + a) + "," + (room.rj + b));
+      }
+    }
+  }
+
   const stack = [{ i: i0, j: j0, dir: null }];
 
   while (stack.length) {
@@ -430,21 +447,35 @@ function cellOpenings(i, j) {
   const cached = cellOpenCache.get(key);
   if (cached !== undefined) return cached;
 
-  const edges = [
-    ["0:" + i + ":" + j, rawWall(0, i, j)],             // south
-    ["0:" + i + ":" + (j + 1), rawWall(0, i, j + 1)],   // north
-    ["1:" + i + ":" + j, rawWall(1, i, j)],             // west
-    ["1:" + (i + 1) + ":" + j, rawWall(1, i + 1, j)],   // east
+  // Classify all four edges, ROOM-AWARE. This is the fix for dead ends beside a
+  // room: a room "solid" shell edge is a permanent wall that CANNOT be opened and
+  // must not be counted as an exit, while a room "open"/"opening" edge already IS
+  // an exit. Counting a sealed shell edge as a usable opening (which the old,
+  // room-blind version did) left cells next to a room one exit short — a dead end.
+  const edgeDefs = [
+    [0, i, j],         // south
+    [0, i, j + 1],     // north
+    [1, i, j],         // west
+    [1, i + 1, j],     // east
   ];
-  const walled = edges.filter((e) => e[1]).map((e) => e[0]);
-  const need = 2 - (4 - walled.length); // how many more openings we must carve
 
+  let openCount = 0;
+  const openable = []; // ids of edges that are walls we're actually ALLOWED to open
+  for (const [t, ei, ej] of edgeDefs) {
+    const r = roomEdge(t, ei, ej);
+    if (r === "solid") continue;          // permanent wall: not an exit, can't open
+    if (r) { openCount++; continue; }     // "open"/"opening": already an exit
+    if (rawWall(t, ei, ej)) openable.push(t + ":" + ei + ":" + ej);
+    else openCount++;                     // the carver tunnelled it open
+  }
+
+  const need = 2 - openCount;
   let result = null;
-  if (need > 0 && walled.length > 0) {
+  if (need > 0 && openable.length > 0) {
     result = new Set();
-    const start = Math.floor(hash2(i, j, 999) * walled.length);
-    for (let k = 0; k < need && k < walled.length; k++) {
-      result.add(walled[(start + k) % walled.length]);
+    const start = Math.floor(hash2(i, j, 999) * openable.length);
+    for (let k = 0; k < need && k < openable.length; k++) {
+      result.add(openable[(start + k) % openable.length]);
     }
   }
 

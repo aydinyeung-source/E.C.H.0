@@ -1604,17 +1604,8 @@ select:focus {
   font-style: normal;
 }
 
-/* The "being seen" section is the one that gets you killed, so it's flagged. */
-.rules-sec.danger {
-  border-left: 2px solid rgba(255, 70, 50, 0.55);
-  padding-left: 16px;
-  margin-left: -18px;
-}
-
-.rules-sec.danger h2 {
-  color: #ff6a4a;
-}
-
+/* The "look away" rule is now just the first section of the handbook — no banner,
+   no box. A single warm-amber punchline is the only emphasis it needs. */
 .rules-punch {
   margin-top: 10px !important;
   color: #ffcf8a !important;

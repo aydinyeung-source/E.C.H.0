@@ -114,6 +114,21 @@ const SIGHT_RANGE = 15; // 2.5 cells
 const SCREEN_COS = Math.cos(0.87); // ~50deg either side of where you're pointed
 const GAZE_COS = Math.cos(0.70);   // ~40deg either side of where it's pointed
 
+// THE STARING CONTEST.
+//
+// Catching a distant thing's eye for a moment is survivable — look away and it goes
+// back to its business. But HOLD its gaze, both of you locked on each other, for
+// STARE_TO_AGGRO seconds, and something changes. It doesn't just clock you: it
+// FIXATES. For AGGRO_HUNT seconds after that it comes for you and does not stop —
+// it knows where you are, breaking line of sight won't shake it, and it will not
+// give up inside that window. Only a crucifix cuts it short.
+//
+// This is what stops the mutual-gaze rule from being a free "peek and duck" — you
+// can glance, but you cannot STARE. And it's the worst possible outcome of the very
+// thing you're tempted to do when you see one far off: keep watching it.
+const STARE_TO_AGGRO = 2;  // seconds of unbroken mutual gaze before it fixates
+const AGGRO_HUNT = 10;     // seconds of guaranteed, unshakeable pursuit
+
 // THE PING IS NOW GENUINELY DANGEROUS.
 //
 // For PING_SIGHT seconds after you fire the sonar, SIGHT_RANGE stops applying: any
@@ -370,6 +385,8 @@ export class EntitySystem {
       e.huntTimer = 0;        // it loses you entirely
       e.investigateTimer = 0; // and forgets the noise it was chasing
       e.enrageTimer = 0;      // and snaps out of any torch rage
+      e.aggroTimer = 0;       // the crucifix is the ONE thing that ends a fixation
+      e.stareTime = 0;
       e.chaseTime = 0;
       e.tx = e.x;             // no last-known position of yours to return to
       e.tz = e.z;
@@ -485,6 +502,8 @@ export class EntitySystem {
       enrageTimer: 0,
       chaseTime: 0,        // how long this pursuit has been going on and failing
       giveUpTimer: 0,      // >0 while it has lost interest and is ignoring you
+      stareTime: 0,        // seconds of unbroken mutual gaze so far
+      aggroTimer: 0,       // >0 while fixated by a staring contest (unshakeable)
       sieging: false,      // camped on a safe-room door, trying to get through it
       bangTimer: 0,        // cadence of its blows against the door
       path: null,
@@ -561,6 +580,8 @@ export class EntitySystem {
     e.huntTimer = 0;
     e.investigateTimer = 0;
     e.enrageTimer = 0;
+    e.aggroTimer = 0; // whatever fixated it has long since worn off by now
+    e.stareTime = 0;
     e.chaseTime = 0;
     e.giveUpTimer = GIVE_UP_TIME;
     e.path = null;
@@ -698,30 +719,40 @@ export class EntitySystem {
       //      and facing both stop mattering entirely — you shouted.
       const clearLine = !world.segmentBlocked(e.x, e.z, playerPos.x, playerPos.z);
 
-      let canSee = false;
-      if (clearLine) {
-        if (this.pingSight > 0 || dPlayer < SIGHT_RANGE) {
-          canSee = true;
-        } else if (dPlayer > 0.001) {
-          // Unit vector from the entity to you.
-          const tx = dxp / dPlayer;
-          const tz = dzp / dPlayer;
-
-          // Is it on your screen? Your forward is -Z at yaw 0.
-          const pfx = -Math.sin(playerYaw);
-          const pfz = -Math.cos(playerYaw);
-          const onScreen = pfx * -tx + pfz * -tz > SCREEN_COS;
-
-          // Is it looking back? Its forward is wherever its body is turned — which
-          // is its heading while it wanders, so one ambling ACROSS your view with
-          // its back to you genuinely cannot see you, however hard you stare.
-          const efx = Math.sin(e.group.rotation.y);
-          const efz = Math.cos(e.group.rotation.y);
-          const lookingAtYou = efx * tx + efz * tz > GAZE_COS;
-
-          canSee = onScreen && lookingAtYou;
-        }
+      // MUTUAL GAZE is computed at ANY range (not just outside SIGHT_RANGE), because
+      // the staring contest below has to know when you're locked on each other even
+      // when it's close.
+      let mutualGaze = false;
+      if (clearLine && dPlayer > 0.001) {
+        const tx = dxp / dPlayer;
+        const tz = dzp / dPlayer;
+        // On your screen? Your forward is -Z at yaw 0.
+        const pfx = -Math.sin(playerYaw);
+        const pfz = -Math.cos(playerYaw);
+        const onScreen = pfx * -tx + pfz * -tz > SCREEN_COS;
+        // Looking back? Its forward is its actual heading — so one ambling ACROSS
+        // your view with its back to you cannot see you, however hard you stare.
+        const efx = Math.sin(e.group.rotation.y);
+        const efz = Math.cos(e.group.rotation.y);
+        const lookingAtYou = efx * tx + efz * tz > GAZE_COS;
+        mutualGaze = onScreen && lookingAtYou;
       }
+
+      // Sustained mutual gaze fixates it (see STARE_TO_AGGRO). The timer only fills
+      // while you're actually locked on each other; break it and it drains, so a
+      // long on-and-off stare still counts but a flicker doesn't.
+      if (mutualGaze) {
+        e.stareTime += dt;
+        if (e.stareTime >= STARE_TO_AGGRO) e.aggroTimer = AGGRO_HUNT;
+      } else {
+        e.stareTime = Math.max(0, e.stareTime - dt);
+      }
+      if (e.aggroTimer > 0) e.aggroTimer -= dt;
+      const aggro = e.aggroTimer > 0;
+
+      // A clear sightline is required, then any of: within SIGHT_RANGE, mutual gaze,
+      // or the ping still lit.
+      const canSee = clearLine && (this.pingSight > 0 || dPlayer < SIGHT_RANGE || mutualGaze);
       e.canSee = canSee; // the radar shows a live red dot for anything watching you
 
       const enraged = e.enrageTimer > 0;
@@ -735,14 +766,15 @@ export class EntitySystem {
         e.path = null;
       } else {
         e.huntTimer -= dt;
-        if (e.huntTimer > 0 || enraged) {
-          // Still knows where you are (recent sight, or torch-rage through walls).
+        if (e.huntTimer > 0 || enraged || aggro) {
+          // Still knows where you are: recent sight, torch-rage, or fixated by a
+          // staring contest — a fixated one tracks your real position through walls.
           e.tx = playerPos.x;
           e.tz = playerPos.z;
         }
       }
 
-      const hunting = canSee || enraged || e.huntTimer > 0;
+      const hunting = canSee || enraged || aggro || e.huntTimer > 0;
 
       // --- Patience ---
       // Time spent pursuing you piles up; time spent not pursuing you bleeds it
@@ -750,9 +782,14 @@ export class EntitySystem {
       // being spotted again doesn't hand it a fresh full tank of patience — a
       // long, scrappy, on-and-off chase still wears it down and ends. Once it's
       // out of patience it breaks off and leaves you alone for GIVE_UP_TIME.
+      //
+      // BUT a fixated one (aggro) cannot give up — that's the whole promise of the
+      // staring contest: at least AGGRO_HUNT seconds of unshakeable pursuit. Its
+      // chaseTime still ticks up, so the moment the fixation lapses it may give up
+      // immediately if it's already been at this a long time.
       if (hunting) {
         e.chaseTime += dt;
-        if (e.chaseTime >= CHASE_PATIENCE) {
+        if (e.chaseTime >= CHASE_PATIENCE && !aggro) {
           this._giveUp(e, playerPos, world);
           e.canSee = false;
           this._wander(e, dt, world);

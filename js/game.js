@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.69.0";
+const VERSION = "v2.70.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -759,7 +759,7 @@ function showPause() {
 
 function showGameOver() {
   setPlaying(false);
-  submitScoreIfDaily();
+  lastScoreSubmit = submitScoreIfDaily(); // remembered so Try Again can await it
   gameOverDistance.textContent = run.maxDistance + " cells";
   gameOverOverlay.classList.remove("hidden");
 }
@@ -850,12 +850,31 @@ document.addEventListener("pointerlockchange", () => {
   }
 });
 
+// Returns a promise that settles once the score has been dealt with, so the
+// between-games reload can WAIT for the upload before it fires. (The LOCAL best is
+// written synchronously inside submitDistance regardless, so it's never at risk;
+// this only protects the server submit from being cut off mid-request.)
 function submitScoreIfDaily() {
-  if (run.playtest) return; // an immune run is not a score. no exceptions.
+  if (run.playtest) return Promise.resolve(); // an immune run is not a score.
   if (run.isDaily && run.maxDistance > 0) {
-    submitDistance({ seed: run.seed, date: run.date, distance: run.maxDistance })
-      .then(() => Menu.refreshLeaderboard(run.date));
+    return submitDistance({ seed: run.seed, date: run.date, distance: run.maxDistance })
+      .then(() => Menu.refreshLeaderboard(run.date))
+      .catch(() => {}); // a failed submit must never block the reload
   }
+  return Promise.resolve();
+}
+let lastScoreSubmit = Promise.resolve(); // the death-screen submit, awaited on retry
+
+// SILENT REFRESH BETWEEN GAMES. Reloading the page between runs means players
+// always pick up the latest deploy without being told to. Two things make this
+// safe, and both matter:
+//   * A reload does NOT clear localStorage — the local daily best, the offline
+//     score queue, the device id and the signed-in session all survive it.
+//   * We only ever call this BETWEEN games (returning to the menu), never mid-run,
+//     and only AFTER any score upload has finished.
+// Offline it just serves the same cached build, which is harmless.
+function refreshBetweenGames() {
+  window.location.reload();
 }
 
 // Returning to the menu re-stages the background scene. Without this the home
@@ -870,11 +889,11 @@ function restageMenu() {
   menuPing = 1.5;
 }
 
-tryAgainButton.addEventListener("click", () => {
-  dead = false;
-  gameOverOverlay.classList.add("hidden");
-  startOverlay.classList.remove("hidden");
-  restageMenu();
+tryAgainButton.addEventListener("click", async () => {
+  // The daily score was already sent when you died (showGameOver). Wait for that
+  // upload to land, then refresh so the retry starts on the newest build.
+  await lastScoreSubmit;
+  refreshBetweenGames();
 });
 
 // Resume the paused run or bail out to the home screen.
@@ -882,12 +901,11 @@ resumeButton.addEventListener("click", () => {
   if (deviceMode === "pc") lockPointer(); // lock -> beginPlay()
   else beginPlay();
 });
-homeButton.addEventListener("click", () => {
-  submitScoreIfDaily();
-  setPlaying(false);
+homeButton.addEventListener("click", async () => {
+  setPlaying(false); // stop the run cleanly (audio, HUD) before the reload
   pauseOverlay.classList.add("hidden");
-  startOverlay.classList.remove("hidden");
-  restageMenu();
+  await submitScoreIfDaily(); // let the score land first
+  refreshBetweenGames();
 });
 
 // --- Mobile on-screen buttons -----------------------------------------------

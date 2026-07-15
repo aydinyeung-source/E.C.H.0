@@ -161,7 +161,8 @@ const INVESTIGATE_TIME = 9;         // seconds it spends looking into a noise
 // isn't working; GIVE_UP_TIME is how long it then ignores you completely. During
 // that window it cannot see or hear you no matter what you do — you get a
 // guaranteed stretch of quiet to actually explore, loot and (later) do tasks.
-const CHASE_PATIENCE = 18;
+const CHASE_PATIENCE = 30; // it will chase this long before it's WILLING to quit —
+                           // and even then only once you've broken its line of sight
 const GIVE_UP_TIME = 30;
 
 // A siege runs LONGER than an ordinary chase before they lose heart. They know

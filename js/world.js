@@ -726,11 +726,20 @@ export function chunkItems(cx, cy) {
 
       for (const [type, chance, salt] of rolls) {
         if (hash2(i, j, salt) >= chance) continue;
-        // Nudge it off the exact centre so a corridor of loot doesn't look like a
-        // conveyor belt. Every cell is walkable (the maze carves passages, it
-        // never seals a cell), so anywhere in it is reachable.
-        const ox = (hash2(i, j, salt + 100) - 0.5) * CELL * 0.5;
-        const oz = (hash2(i, j, salt + 200) - 0.5) * CELL * 0.5;
+        // Drop it somewhere RANDOM in the cell, not tidily in the middle. None of
+        // this was placed — it was left, dropped, or died here:
+        //   * MEAT     — a carcass, half-decayed against a wall. Nobody put it out
+        //                for you; you eat it because the alternative is starving.
+        //   * CRUCIFIX — left behind by whoever was here before you, for whatever
+        //                good it did them.
+        //   * TORCH    — the remains of an explorer who didn't make it. You're
+        //                taking the light off the dead.
+        // So it lies wherever it fell. Spread across ~0.78 of the cell (leaving a
+        // margin off the walls so nothing clips into them), with X and Z rolled
+        // independently. Every cell is walkable (the maze carves passages, it never
+        // seals a cell), so anywhere in it is reachable.
+        const ox = (hash2(i, j, salt + 100) - 0.5) * CELL * 0.78;
+        const oz = (hash2(i, j, salt + 200) - 0.5) * CELL * 0.78;
         items.push({
           id: `${type}:${i}:${j}`, // stable id, so a collected item stays collected
           type,

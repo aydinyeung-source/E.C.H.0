@@ -57,24 +57,23 @@ const WINDOW_OPEN = 0.5;   // fraction of the wall that's the gap
 const WINDOW_SILL = 0.95;  // height of the sill you have to clear
 const WINDOW_H = 2.2;      // top of the opening (lintel sits above it)
 
-// Loot lying in the world, rolled PER CELL — not once per chunk. A chunk is 36
-// cells, so these small per-cell odds add up to roughly two scraps of meat, one
-// torch and one crucifix in every 36x36m chunk. Things are lying about all over
-// the place, the way they would be in a building people left in a hurry.
-// HALVED. At 5%/3% a chunk held ~1.8 meat and ~1 torch, which is a scrap of meat
-// every 20m of corridor — you were tripping over supplies, and an item you find
-// constantly is an item you never have to plan around. Everything is now half as
-// common, and every one of these has to be worth stopping for.
-const CELL_MEAT_CHANCE = 0.025;
-const CELL_TORCH_CHANCE = 0.015;
-// The crucifix stays RARE, and deliberately out of step with the other two. At 3%
-// a cell it worked out at ~1 per chunk — one every 37m of corridor — and an item
-// that blinds every entity in the world, wipes their memory of you and hands you a
-// speed burst cannot be something you trip over constantly. A panic button stops
-// being a panic button when you own thirty of them. 0.5% puts it at ~1 per 6
-// chunks: still far commoner than it used to be, but you'll think before spending
-// one.
-const CELL_CRUCIFIX_CHANCE = 0.0025;
+// Loot lying in the world, rolled PER CELL in TWO stages:
+//   1. Does this cell hold anything at all? CELL_LOOT_CHANCE says yes 5% of the
+//      time. A chunk is 36 cells, so that's ~1.8 items per 36x36m chunk — things
+//      scattered about, the way they would be in a building people fled.
+//   2. If it does, WHAT is it? A weighted pick: meat is the everyday scrap you
+//      live on, a torch is a lucky find, a crucifix is the rare prize.
+//
+// Splitting it this way (a spawn gate, then a type roll) keeps the two knobs
+// independent: CELL_LOOT_CHANCE controls how MUCH loot there is, and the weights
+// control the MIX, without either one dragging the other around.
+const CELL_LOOT_CHANCE = 0.05;
+// Weights must sum to 1. Order = the order they're tested against the roll.
+const LOOT_WEIGHTS = [
+  ["meat", 0.75],     // ~1.35 / chunk
+  ["torch", 0.20],    // ~0.36 / chunk
+  ["crucifix", 0.05], // ~0.09 / chunk — one every ~11 chunks; the panic item stays rare
+];
 const CHUNK_CELLS = 6;   // cells per chunk edge (bigger = longer unbroken halls)
 const CHUNK_SIZE = CELL * CHUNK_CELLS;
 // Chunks are 6x6 cells (36u). At radius 1 the WORST case — standing at a chunk's
@@ -694,14 +693,10 @@ function roomEdge(type, i, j) {
   return null;
 }
 
-// What loot is lying in this chunk. EVERY CELL gets its own independent roll, so
-// supplies are scattered through the level rather than one lonely item per chunk.
-// Deterministic and seeded, so the daily challenge puts the same things in the
-// same corridors for everyone.
-//
-// A cell can hold at most ONE item: the rolls are checked in order and the first
-// hit wins. Otherwise a lucky cell would produce a little pile of loot sitting on
-// top of itself, which looks like a bug even when it isn't.
+// What loot is lying in this chunk. Every cell rolls, in two stages: a spawn gate
+// (CELL_LOOT_CHANCE), then a weighted type pick (LOOT_WEIGHTS). Deterministic and
+// seeded, so the daily challenge puts the same things in the same corridors for
+// everyone.
 //
 // Safe-room cells are skipped. A room has its own reward locked behind its own
 // task, and finding a free crucifix on the floor next to it would undercut the
@@ -709,11 +704,6 @@ function roomEdge(type, i, j) {
 export function chunkItems(cx, cy) {
   const items = [];
   const room = chunkRoom(cx, cy);
-  const rolls = [
-    ["meat", CELL_MEAT_CHANCE, 21],
-    ["torch", CELL_TORCH_CHANCE, 22],
-    ["crucifix", CELL_CRUCIFIX_CHANCE, 23],
-  ];
 
   for (let di = 0; di < CHUNK_CELLS; di++) {
     for (let dj = 0; dj < CHUNK_CELLS; dj++) {
@@ -724,30 +714,39 @@ export function chunkItems(cx, cy) {
         continue; // inside a safe room — its loot is behind the terminal
       }
 
-      for (const [type, chance, salt] of rolls) {
-        if (hash2(i, j, salt) >= chance) continue;
-        // Drop it somewhere RANDOM in the cell, not tidily in the middle. None of
-        // this was placed — it was left, dropped, or died here:
-        //   * MEAT     — a carcass, half-decayed against a wall. Nobody put it out
-        //                for you; you eat it because the alternative is starving.
-        //   * CRUCIFIX — left behind by whoever was here before you, for whatever
-        //                good it did them.
-        //   * TORCH    — the remains of an explorer who didn't make it. You're
-        //                taking the light off the dead.
-        // So it lies wherever it fell. Spread across ~0.78 of the cell (leaving a
-        // margin off the walls so nothing clips into them), with X and Z rolled
-        // independently. Every cell is walkable (the maze carves passages, it never
-        // seals a cell), so anywhere in it is reachable.
-        const ox = (hash2(i, j, salt + 100) - 0.5) * CELL * 0.78;
-        const oz = (hash2(i, j, salt + 200) - 0.5) * CELL * 0.78;
-        items.push({
-          id: `${type}:${i}:${j}`, // stable id, so a collected item stays collected
-          type,
-          x: (i + 0.5) * CELL + ox,
-          z: (j + 0.5) * CELL + oz,
-        });
-        break; // one item per cell
+      // Stage 1: does anything spawn here at all?
+      if (hash2(i, j, 24) >= CELL_LOOT_CHANCE) continue;
+
+      // Stage 2: what is it? A separate hash walks the weight table. Using a
+      // DIFFERENT salt from the gate means the type doesn't correlate with whether
+      // a cell spawned — the two rolls are genuinely independent.
+      let r = hash2(i, j, 25);
+      let type = LOOT_WEIGHTS[LOOT_WEIGHTS.length - 1][0];
+      for (const [t, w] of LOOT_WEIGHTS) {
+        if (r < w) { type = t; break; }
+        r -= w;
       }
+
+      // Drop it somewhere RANDOM in the cell, not tidily in the middle. None of
+      // this was placed — it was left, dropped, or died here:
+      //   * MEAT     — a carcass, half-decayed against a wall. Nobody put it out
+      //                for you; you eat it because the alternative is starving.
+      //   * CRUCIFIX — left behind by whoever was here before you, for whatever
+      //                good it did them.
+      //   * TORCH    — the remains of an explorer who didn't make it. You're taking
+      //                the light off the dead.
+      // So it lies wherever it fell. Spread across ~0.78 of the cell (leaving a
+      // margin off the walls so nothing clips into them), X and Z rolled
+      // independently. Every cell is walkable (the maze carves passages, it never
+      // seals a cell), so anywhere in it is reachable.
+      const ox = (hash2(i, j, 121) - 0.5) * CELL * 0.78;
+      const oz = (hash2(i, j, 221) - 0.5) * CELL * 0.78;
+      items.push({
+        id: `${type}:${i}:${j}`, // stable id, so a collected item stays collected
+        type,
+        x: (i + 0.5) * CELL + ox,
+        z: (j + 0.5) * CELL + oz,
+      });
     }
   }
   return items;

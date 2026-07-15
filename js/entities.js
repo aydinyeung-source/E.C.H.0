@@ -129,6 +129,16 @@ const GAZE_COS = Math.cos(0.70);   // ~40deg either side of where it's pointed
 const STARE_TO_AGGRO = 2;  // seconds of unbroken mutual gaze before it fixates
 const AGGRO_HUNT = 10;     // seconds of guaranteed, unshakeable pursuit
 
+// THE CORRIDOR CHASE. Once something is already chasing you, it does not lose you
+// just because you sprint out past SIGHT_RANGE down a straight hall — it keeps you
+// dead in its sights for the whole length of the corridor. But ONLY while you stay
+// roughly in line with it: if either axis (x or z) is within CHASE_ALIGN metres,
+// sight is unlimited. Break that line — get more than that off-axis on BOTH axes,
+// i.e. duck round a corner — and it drops back to ordinary SIGHT_RANGE and can lose
+// you. 9m is a corridor and a half, so it holds the line even when you're both
+// hugging opposite walls; you have to actually turn off to shake it.
+const CHASE_ALIGN = 9;
+
 // THE PING IS NOW GENUINELY DANGEROUS.
 //
 // For PING_SIGHT seconds after you fire the sonar, SIGHT_RANGE stops applying: any
@@ -749,13 +759,22 @@ export class EntitySystem {
       }
       if (e.aggroTimer > 0) e.aggroTimer -= dt;
       const aggro = e.aggroTimer > 0;
+      const enraged = e.enrageTimer > 0;
+
+      // Is it ALREADY in pursuit (from a previous frame)? That's what unlocks the
+      // corridor chase below — you can't trigger the unlimited-range sight cold, it
+      // only extends a chase that has already started.
+      const chasing = e.huntTimer > 0 || aggro || enraged;
+      // Roughly in line down a corridor? Within CHASE_ALIGN on EITHER axis.
+      const aligned = Math.abs(dxp) <= CHASE_ALIGN || Math.abs(dzp) <= CHASE_ALIGN;
+      const chaseSight = chasing && aligned;
 
       // A clear sightline is required, then any of: within SIGHT_RANGE, mutual gaze,
-      // or the ping still lit.
-      const canSee = clearLine && (this.pingSight > 0 || dPlayer < SIGHT_RANGE || mutualGaze);
+      // the ping still lit, or a corridor chase (already chasing AND in line).
+      const canSee =
+        clearLine && (this.pingSight > 0 || dPlayer < SIGHT_RANGE || mutualGaze || chaseSight);
       e.canSee = canSee; // the radar shows a live red dot for anything watching you
 
-      const enraged = e.enrageTimer > 0;
       if (enraged) e.enrageTimer -= dt;
 
       if (canSee) {

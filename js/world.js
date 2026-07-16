@@ -1228,6 +1228,25 @@ export class World {
     return false;
   }
 
+  // Can a BODY travel this segment in a straight line, or is something solid in the
+  // way? Same slab test as segmentBlocked, but windows and doorway wards count as
+  // walls: an entity can SEE you through a smashed window yet cannot fit through it.
+  // A hunter uses this to notice a hole it can't use and route AROUND it instead of
+  // grinding face-first into the sill.
+  segmentBlockedForEntity(x1, z1, x2, z2) {
+    const dx = x2 - x1;
+    const dz = z2 - z1;
+    for (const chunk of this.chunks.values()) {
+      for (const w of chunk.bounds) {
+        if (segHitsBox(x1, z1, dx, dz, w, true)) return true;
+      }
+    }
+    for (const w of this.extraBounds) {
+      if (segHitsBox(x1, z1, dx, dz, w, true)) return true;
+    }
+    return false;
+  }
+
   // Push a circle (the player) out of any wall box it overlaps, on the XZ plane.
   // Relax out of any overlapping walls, iterating until nothing overlaps (or we
   // give up). This MUST settle: it runs every frame even when standing still, so
@@ -1288,8 +1307,13 @@ export class World {
 // seen and be heard through it. It only stops bodies, not light or sound. This is
 // what makes diving through a window a gamble rather than an escape — it still
 // has eyes on you the whole time, it just can't follow.
-function segHitsBox(x1, z1, dx, dz, w) {
-  if (w.entityOnly || w.window) return false;
+function segHitsBox(x1, z1, dx, dz, w, solidHoles = false) {
+  // A hole (a smashed window's sill, or an open doorway's entity ward) normally
+  // lets sight, sound and a diving player straight through — so for a sightline it
+  // is not there at all. But an ENTITY'S BODY cannot fit through it, and when we're
+  // asking "can this thing actually WALK from here to there in a straight line" the
+  // hole is a wall like any other. `solidHoles` switches to that reading.
+  if (!solidHoles && (w.entityOnly || w.window)) return false;
 
   let tmin = 0;
   let tmax = 1;

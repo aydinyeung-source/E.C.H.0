@@ -864,7 +864,13 @@ export class EntitySystem {
       // --- Hunting ---
       let aimX = e.tx;
       let aimZ = e.tz;
-      if (!canSee) {
+      // Beeline ONLY if the body can actually make that line. It's possible to SEE
+      // the player and still not be able to walk to them straight: a smashed window
+      // or an open doorway ward is a hole you can see through but not fit through.
+      // Spot one of those in the way and route AROUND it instead of grinding into
+      // the sill — the whole "it knows it's a window" behaviour.
+      const seeThroughHole = canSee && world.segmentBlockedForEntity(e.x, e.z, e.tx, e.tz);
+      if (!canSee || seeThroughHole) {
         e.pathTimer -= dt;
         if (!e.path || !e.path.length || e.pathTimer <= 0) {
           e.path = world.findPath(e.x, e.z, e.tx, e.tz);
@@ -876,6 +882,11 @@ export class EntitySystem {
             aimX = e.path[0].x;
             aimZ = e.path[0].z;
           }
+        } else if (seeThroughHole) {
+          // Seen you through a hole it can't use, and no way around it right now:
+          // hold and watch rather than mime walking into the glass.
+          aimX = e.x;
+          aimZ = e.z;
         }
       }
 

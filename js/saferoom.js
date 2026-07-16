@@ -67,7 +67,7 @@ const TASK_CODES = 3;           // codes to type before the task is done
 // entity for two chunks hears it, and they come straight in. So a task is a bet
 // against the clock, and losing it means you're suddenly not safe and had better be
 // leaving — out the door you just lost, or down the vent.
-const TASK_TIME = 18;
+const TASK_TIME = 12;
 // After a breach, they don't just hear one bang and wander over — they KNOW where
 // you are and keep knowing it, for this long. See entities.manhunt().
 const BREACH_HUNT = 25;
@@ -462,7 +462,8 @@ export class SafeRooms {
       keypadTyped: "",
       task: { index: 0, done: false },
       taskTimer: null, // seconds left once a task is STARTED (null = not started)
-      lockerOpen: false,
+      lockerArmed: false, // task done: UNLOCKED, but you still have to pull it open
+      lockerOpen: false,  // you pulled it open
       reward: REWARDS[n % REWARDS.length],
       props: [], // planks, and later the locker's contents
       _propsSpawned: false,
@@ -795,12 +796,9 @@ export class SafeRooms {
       room.meshes.keypadLamp.material = this.trimLitMat;
     }
     if (room.lockerOpen) {
-      if (room.meshes.lockerDoor) {
-        room.meshes.lockerDoor.rotation.y = -1.1;
-        room.meshes.lockerDoor.position.x -= 0.38;
-        room.meshes.lockerDoor.position.z += 0.16;
-      }
-      if (room.meshes.lockerStrip) room.meshes.lockerStrip.material = this.trimLitMat;
+      this._openLockerVisual(room); // door already pulled: rebuild it open
+    } else if (room.lockerArmed && room.meshes.lockerStrip) {
+      room.meshes.lockerStrip.material = this.trimLitMat; // unlocked, shut, lit green
     }
     this._applyDoorVisual(room);
     this._applyVentVisual(room);
@@ -1135,7 +1133,8 @@ export class SafeRooms {
     }
     if (m.screen) m.screen.material = kind === "terminal" ? hl : this.screenMat;
     if (m.lockerStrip) {
-      m.lockerStrip.material = kind === "locker" ? hl : room.lockerOpen ? this.trimLitMat : this.trimMat;
+      m.lockerStrip.material =
+        kind === "locker" ? hl : room.lockerOpen || room.lockerArmed ? this.trimLitMat : this.trimMat;
     }
     if (m.gratePlate) m.gratePlate.material = kind === "vent" ? hl : this.metalMat;
   }
@@ -1348,8 +1347,8 @@ export class SafeRooms {
       this.prompt = { text: "TERMINAL", kind: "terminal" };
       return;
     }
-    if (near(room.lockPos) && room.lockerOpen && room.props.length) {
-      this.prompt = { text: "LOCKER", kind: "locker" };
+    if (near(room.lockPos) && room.lockerArmed) {
+      this.prompt = { text: "OPEN LOCKER", kind: "locker" };
     }
 
     // NOTHING here tells you the door code. There used to be a prompt that read
@@ -1395,16 +1394,35 @@ export class SafeRooms {
         this.openPanel(room, "terminal", player);
         break;
 
-      case "locker":
-        for (let k = room.props.length - 1; k >= 0; k--) {
-          const p = room.props[k];
-          if (!this.inv.give(p.type, 1)) return;
-          if (p.mesh) this.scene.remove(p.mesh);
-          room.props.splice(k, 1);
+      case "locker": {
+        // Pulling the locker open IS how you get the reward. Finishing the task only
+        // armed it. First pull swings the door; the prize goes straight into your
+        // hands. If your hands are full the door stays open and the locker stays
+        // armed — come back once you've made room and pull it again.
+        if (!room.lockerArmed) break;
+        if (!room.lockerOpen) {
+          room.lockerOpen = true;
+          this._openLockerVisual(room); // swing the door + strip to green, once
+        }
+        if (this.inv.give(room.reward, 1)) {
+          room.lockerArmed = false;
           this.audio.pickup();
         }
         break;
+      }
     }
+  }
+
+  // Swing the cabinet door wide and light its strip green. The door offset is
+  // RELATIVE, so this must run exactly once per mesh instance — press() guards on
+  // lockerOpen, and the room-rebuild restore runs it on a fresh mesh.
+  _openLockerVisual(room) {
+    if (room.meshes.lockerDoor) {
+      room.meshes.lockerDoor.rotation.y = -1.1;
+      room.meshes.lockerDoor.position.x -= 0.38;
+      room.meshes.lockerDoor.position.z += 0.16;
+    }
+    if (room.meshes.lockerStrip) room.meshes.lockerStrip.material = this.trimLitMat;
   }
 
   // --- The panel (keypad out in the hall, terminal in the room) --------------
@@ -1555,31 +1573,17 @@ export class SafeRooms {
 
     // --- TASK COMPLETE ------------------------------------------------------
     room.task.done = true;
-    room.lockerOpen = true;
+    // The task only UNLOCKS the locker. It does NOT pop it open and spit the prize
+    // onto the floor for you — you still have to walk over and pull it open (see the
+    // "locker" case in press()). Its strip goes from cyan standby to a live green so
+    // you can see across the room that it's yours to open, but the door stays shut.
+    room.lockerArmed = true;
     this.audio.termDone();
     // Everything camped on that door gives up and walks away. This is the payoff:
     // you didn't fight them off, you outlasted them with your back turned.
     this.entities.disperse(player.pos.x, player.pos.z, 45, world);
     this.entities.setSiege(null);
 
-    // The locker pops. Whatever's in it drops on the floor in front of it.
-    const lp = room.lockPos;
-    const prize = {
-      type: room.reward,
-      x: lp.x + (Math.random() - 0.5) * 0.6,
-      z: lp.z + (Math.random() - 0.5) * 0.6,
-      rot: 0,
-    };
-    prize.mesh = this._propMesh(prize);
-    room.props.push(prize);
-    if (room.group) room.group.add(prize.mesh);
-    // The cabinet door swings wide and its strip goes from cyan standby to a live
-    // green — visible across the room, so you know it worked without turning round.
-    if (room.meshes.lockerDoor) {
-      room.meshes.lockerDoor.rotation.y = -1.1;
-      room.meshes.lockerDoor.position.x -= 0.38;
-      room.meshes.lockerDoor.position.z += 0.16;
-    }
     if (room.meshes.lockerStrip) room.meshes.lockerStrip.material = this.trimLitMat;
 
     this.closeTerminal(player);

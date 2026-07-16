@@ -692,7 +692,12 @@ button.secondary:hover {
   position: fixed;
   top: 12px;
   left: 12px;
-  z-index: 6;
+  /* Above the terminal/keypad overlay (z-index 30) so you can still watch the
+     nearest thing close in while your head's buried in a code — that's exactly
+     when you most need to know. Still below the ward flash (40) and jumpscare
+     (100), and it's hidden outright while paused or dead, so it never floats over
+     those screens. */
+  z-index: 31;
   display: flex;
   align-items: flex-end;
   gap: 12px;

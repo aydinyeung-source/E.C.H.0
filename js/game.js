@@ -18,11 +18,12 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.76.0";
+const VERSION = "v2.77.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
 const startButton = document.getElementById("startButton");
+const seedGoButton = document.getElementById("seedGoButton");
 const dailyButton = document.getElementById("dailyButton");
 const seedInput = document.getElementById("seedInput");
 const sensSlider = document.getElementById("sensSlider");
@@ -684,7 +685,7 @@ const DEATH_RECOUNT = 3;
 let deathCooldown = 0;
 
 function renderDeathTag() {
-  deathTag.textContent = `☠ WOULD-BE DEATHS: ${run.deaths}`;
+  deathTag.textContent = `WOULD-BE DEATHS: ${run.deaths}`;
 }
 
 function startRun(rawSeedText, label, isDaily) {
@@ -830,7 +831,13 @@ function die() {
   }, 1200);
 }
 
-startButton.addEventListener("click", () => startRun(seedInput.value, null, false));
+// The big button is always a fresh random maze, whatever's typed in the seed box.
+startButton.addEventListener("click", () => startRun("", null, false));
+// The little "Go" beside the seed box runs the seed you typed (blank = random too).
+seedGoButton.addEventListener("click", () => startRun(seedInput.value, null, false));
+seedInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") startRun(seedInput.value, null, false);
+});
 
 dailyButton.addEventListener("click", () => {
   const date = todayUTC();

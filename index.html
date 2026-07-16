@@ -19,10 +19,10 @@
 
     <!-- Always visible while an immune run is in progress, so a playtest can
          never be mistaken for a real one. -->
-    <div class="playtest-tag hidden" id="playtestTag">🛡 PLAYTEST · IMMUNE · NO LEADERBOARD</div>
+    <div class="playtest-tag hidden" id="playtestTag">PLAYTEST · IMMUNE · NO LEADERBOARD</div>
 
     <!-- Playtest only: how many times this run would have ended in a real game. -->
-    <div class="death-tag hidden" id="deathTag">☠ WOULD-BE DEATHS: 0</div>
+    <div class="death-tag hidden" id="deathTag">WOULD-BE DEATHS: 0</div>
 
     <!-- Hotbar + energy meter (shown while playing). Slots are built in game.js. -->
     <div class="hotbar hidden" id="hotbar"></div>
@@ -123,7 +123,7 @@
     <div class="overlay" id="startOverlay">
       <!-- Top-left: settings, collapsed into a tab you open. -->
       <div class="menu-panel top-left">
-        <button class="panel-toggle" id="settingsToggle" type="button" aria-expanded="false">⚙ Settings</button>
+        <button class="panel-toggle" id="settingsToggle" type="button" aria-expanded="false">Settings</button>
         <div class="panel-body hidden" id="settingsBody">
         <div class="field">
           <label for="sensSlider">Look sensitivity <span id="sensValue" class="sub">1.0x</span></label>
@@ -148,11 +148,8 @@
           </select>
         </div>
         <p class="headphones-note">
-          🎧 <strong>Headphones recommended.</strong> Entities are tracked by 3D
-          sound — you hear exactly where they are, and walls muffle them.
-        </p>
-        <p class="controls-hint">
-          New here? The <strong>How to Play</strong> button explains everything.
+          <strong>Headphones recommended:</strong> we use 3D spatial sound tracking
+          to help you identify entities and make the game more immersive.
         </p>
         <p class="panel-version">Build <strong id="versionLabel">—</strong></p>
         </div>
@@ -166,7 +163,6 @@
       <div class="menu-panel top-right">
         <div class="login-brand" id="loginBrand">
           <h1>E.C.H.0</h1>
-          <p class="tagline">Identify yourself.</p>
         </div>
         <div id="authForms">
           <div class="auth-tabs">
@@ -185,28 +181,33 @@
         </div>
       </div>
 
-      <!-- Center: title, seed, play -->
+      <!-- Center: title, play -->
       <div class="menu-center">
         <h1>E.C.H.0</h1>
-        <p class="tagline">You are somewhere you shouldn't be.</p>
-        <p class="headphones">🎧 Headphones recommended</p>
 
-        <div class="field seed-field">
-          <label for="seedInput">Seed <span class="sub">(blank = random)</span></label>
-          <input id="seedInput" type="text" maxlength="32" placeholder="type anything…" autocomplete="off" spellcheck="false" />
+        <!-- The big button just drops you into a fresh random maze. Typing a
+             specific seed is the small aside to the right, for people who want it. -->
+        <div class="play-block">
+          <button id="startButton" type="button" class="primary-play">Join Random Seed</button>
+          <div class="seed-aside">
+            <label for="seedInput">Custom seed</label>
+            <div class="seed-entry">
+              <input id="seedInput" type="text" maxlength="32" placeholder="type anything…" autocomplete="off" spellcheck="false" />
+              <button id="seedGoButton" class="secondary small" type="button">Go</button>
+            </div>
+          </div>
         </div>
 
         <div class="overlay-actions">
-          <button id="startButton" type="button">Enter</button>
           <button id="dailyButton" class="secondary" type="button">Daily Challenge</button>
         </div>
 
-        <button id="rulesButton" class="ghost rules-open" type="button">📖 How to Play</button>
+        <button id="rulesButton" class="ghost rules-open" type="button">How to Play</button>
 
         <!-- Dev-only: shown solely to the playtest account (see menu.js). An
              immune run is never submitted to the leaderboard. -->
         <div class="playtest-row hidden" id="playtestRow">
-          <button id="playtestToggle" class="secondary playtest" type="button">🛡 Playtest immunity: OFF</button>
+          <button id="playtestToggle" class="secondary playtest" type="button">Playtest immunity: OFF</button>
           <p class="sub">Nothing can kill you. The run will not be submitted to the leaderboard.</p>
         </div>
 
@@ -384,7 +385,7 @@
     <div class="overlay hidden" id="gameOverOverlay">
       <div class="panel">
         <h1 class="dead-title">TAKEN</h1>
-        <p class="tagline">Something found you in the dark.</p>
+        <p class="tagline">You were taken.</p>
         <p class="dead-stat">You uncovered <strong id="gameOverDistance">0 cells</strong></p>
         <button id="tryAgainButton" type="button">Try Again</button>
       </div>

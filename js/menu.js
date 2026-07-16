@@ -193,8 +193,8 @@ export const Menu = {
     this.playtestRow.classList.toggle("hidden", !this.isPlaytester);
     this.playtestToggle.classList.toggle("active", this.playtest);
     this.playtestToggle.textContent = this.playtest
-      ? "🛡 Playtest immunity: ON"
-      : "🛡 Playtest immunity: OFF";
+      ? "Playtest immunity: ON"
+      : "Playtest immunity: OFF";
   },
 
   // Render the daily top 10 for the given date.

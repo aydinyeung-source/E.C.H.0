@@ -1149,7 +1149,7 @@ button.playtest.active {
   background: rgba(255, 190, 60, 0.22);
   border-color: rgba(255, 190, 60, 0.9);
   color: #fff0c4;
-  box-shadow: 0 0 14px rgba(255, 190, 60, 0.35);
+  box-shadow: none;
 }
 
 /* Would-be deaths, top-left under the seed tag. Red, because it is the one thing
@@ -1221,12 +1221,12 @@ select {
   background: var(--panel);
 }
 
-/* The title: a dying fluorescent tube, not a neon sign. */
+/* The title: flat signage type, no glow. */
 .panel h1,
 .menu-center h1,
 #startOverlay.signed-out .login-brand h1 {
   color: var(--lamp);
-  text-shadow: 0 0 12px rgba(255, 246, 223, 0.45), 0 0 34px rgba(216, 200, 64, 0.32);
+  text-shadow: none;
 }
 
 .tagline,
@@ -1250,7 +1250,7 @@ select {
   color: var(--wall);
 }
 
-/* Buttons read like the plates screwed onto the doors down there. */
+/* Buttons read like the plates screwed onto the doors down there. Flat — no glow. */
 button {
   border: 1px solid rgba(216, 200, 64, 0.45);
   background: rgba(216, 200, 64, 0.08);
@@ -1258,6 +1258,7 @@ button {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   font-size: 0.72rem;
+  box-shadow: none;
   transition: background 0.12s linear, border-color 0.12s linear;
 }
 
@@ -1265,6 +1266,7 @@ button:hover:not(:disabled) {
   background: rgba(216, 200, 64, 0.2);
   border-color: rgba(216, 200, 64, 0.8);
   color: var(--lamp);
+  box-shadow: none;
 }
 
 button:disabled {
@@ -1274,6 +1276,59 @@ button:disabled {
 button.secondary {
   border-color: rgba(232, 227, 207, 0.24);
   background: rgba(232, 227, 207, 0.04);
+}
+
+/* Home play block: one big primary action (a fresh random maze), with the
+   custom-seed entry tucked off to the side, small. */
+.play-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin: 22px 0 16px;
+}
+
+.primary-play {
+  padding: 18px 40px;
+  font-size: 0.92rem;
+  letter-spacing: 0.2em;
+  background: rgba(216, 200, 64, 0.16);
+  border-color: rgba(216, 200, 64, 0.7);
+  color: var(--lamp);
+}
+
+.primary-play:hover:not(:disabled) {
+  background: rgba(216, 200, 64, 0.28);
+}
+
+.seed-aside {
+  text-align: left;
+}
+
+.seed-aside label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.seed-entry {
+  display: flex;
+  gap: 6px;
+}
+
+.seed-entry input[type="text"] {
+  width: 128px;
+  padding: 8px 10px;
+  font-size: 0.72rem;
+}
+
+.seed-entry button {
+  padding: 8px 14px;
+  font-size: 0.62rem;
 }
 
 input[type="text"],

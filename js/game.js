@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.71.1";
+const VERSION = "v2.72.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -1178,28 +1178,41 @@ function roomForCrucifix() {
 }
 
 // Called from USE (see useSelected) when the top half is selected. Kicks off the
-// assembly channel if everything's in order. Returns true if it started.
+// assembly channel if everything's in order. Returns true if it started. Energy is
+// charged on COMPLETION, not here — so a combine you never finish (you walk off)
+// costs nothing.
 function startCombine() {
   if (combineTimer > 0) return true;             // already at it
   if (!hasItem("cruxtop") || !hasItem("cruxbot")) return false; // need both halves
   if (!roomForCrucifix()) return false;          // no room for the result
   if (energy < COMBINE_COST) return false;       // can't afford it
-  energy -= COMBINE_COST;                         // committed up front
   combineTimer = COMBINE_TIME;
   audio.pickup();                                 // a small click to say "started"
   return true;
 }
 
-// Advance an in-progress assembly. A plain countdown — no stand-still needed.
+// Advance an in-progress assembly. YOU HAVE TO STAND STILL — the countdown only
+// runs while you're stationary (and not nose-to-a-terminal); the moment you move it
+// HOLDS where it is and resumes when you stop. And while it's running you get no
+// rest-regen (see the energy ladder) — your hands are busy, so standing here to
+// assemble is NOT the same as standing here to catch your breath.
 function updateCombine(dt) {
   if (combineTimer <= 0) {
     combinePrompt = null;
     return;
   }
+
+  if (player.moving || saferooms.terminal) {
+    const pct = Math.round((1 - combineTimer / COMBINE_TIME) * 100);
+    combinePrompt = `STAND STILL · ASSEMBLING CRUCIFIX ${pct}%`;
+    return; // held — no progress while moving
+  }
+
   combineTimer -= dt;
   if (combineTimer <= 0) {
     combineTimer = 0;
     combinePrompt = null;
+    energy = Math.max(0, energy - COMBINE_COST); // charged on completion
     inv.take("cruxtop");
     inv.take("cruxbot");
     addItem("crucifix", 1);
@@ -1395,6 +1408,9 @@ function loop(now) {
       energy = Math.max(0, energy - RUN_DRAIN * dt);
     } else if (player.moving) {
       energy = Math.min(ENERGY_MAX, energy + WALK_REGEN * dt);
+    } else if (combineTimer > 0) {
+      // Standing still, but ASSEMBLING a crucifix — hands busy, no breather, so no
+      // rest-regen. Stopping to build is not the same as stopping to rest.
     } else {
       energy = Math.min(ENERGY_MAX, energy + REST_REGEN * dt);
     }

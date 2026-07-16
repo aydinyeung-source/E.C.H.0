@@ -15,11 +15,12 @@ import { AudioSystem } from "./audio.js";
 import { Pickups, MEAT_ENERGY } from "./pickups.js";
 import { Radar } from "./radar.js";
 import { SafeRooms } from "./saferoom.js";
+import { SecurityCameras } from "./cctv.js";
 import { DeathCutscene } from "./cutscene.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.79.0";
+const VERSION = "v2.80.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -168,6 +169,10 @@ const fx = {
 };
 
 const saferooms = new SafeRooms(scene, world, audio, entities, inv, fx);
+
+// Atmospheric only: security cameras that occasionally hang in a corner and turn
+// to watch you. They don't hunt or alert anything — just suspense. See cctv.js.
+const securityCams = new SecurityCameras(scene);
 
 // The death cutscene (see cutscene.js). It drives the shared camera + scene, so
 // while one is playing the main loop hands it the frame and does nothing else.
@@ -763,6 +768,7 @@ function startRun(rawSeedText, label, isDaily) {
   // The maze is already inhabited when you get there — they're out in it from the
   // start, wandering, well beyond sight. They just don't know you exist yet.
   entities.reset(player.pos, world);
+  securityCams.reset(); // no cameras carried over from the last run
   audio.resetVoices(); // drop spatial voices from the previous run
   pickups.reset(); // loot lives in the chunks now, not in a pool around you
   // Every door re-locks, every grate goes back on, every locker is shut again.
@@ -937,6 +943,7 @@ function restageMenu() {
   player.reset(SPAWN);
   world.update(player.pos);
   entities.reset(player.pos, world); // one of them, placed far off and out of sight
+  securityCams.reset();
   saferooms.reset();
   menuDrift = 0;
   menuPing = 1.5;
@@ -1491,6 +1498,9 @@ function loop(now) {
 
     updateTorch(dt);
     if (entities.update(dt, player.pos, player.yaw, run.maxDistance, world)) die();
+
+    // The watchers in the corners — placed occasionally, turning to follow you.
+    securityCams.update(dt, player.pos, world);
 
     // Safe rooms: streaming, the door, the siege, the props, the prompts. Runs
     // AFTER the entities so it sees this frame's blows against the door.

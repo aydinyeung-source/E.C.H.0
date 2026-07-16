@@ -1785,3 +1785,36 @@ select:focus {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.05); }
 }
+
+/* ---------------------------------------------------------------------------
+   DEATH CUTSCENE
+   A flat black veil the cutscene fades the scene in from and slams back to at
+   the kill. No glow, no gradient — it is simply the dark. Opacity is written
+   per-frame from cutscene.js; it sits over the canvas, under the jumpscare.
+   --------------------------------------------------------------------------- */
+.cutscene-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Settings checkbox row (the death-cutscene toggle). */
+.field-check {
+  margin-bottom: 12px;
+}
+
+.check-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.check-label input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--lamp);
+}

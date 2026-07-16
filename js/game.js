@@ -15,10 +15,11 @@ import { AudioSystem } from "./audio.js";
 import { Pickups, MEAT_ENERGY } from "./pickups.js";
 import { Radar } from "./radar.js";
 import { SafeRooms } from "./saferoom.js";
+import { DeathCutscene } from "./cutscene.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.77.0";
+const VERSION = "v2.78.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -167,6 +168,23 @@ const fx = {
 };
 
 const saferooms = new SafeRooms(scene, world, audio, entities, inv, fx);
+
+// The death cutscene (see cutscene.js). It drives the shared camera + scene, so
+// while one is playing the main loop hands it the frame and does nothing else.
+const cutsceneVeil = document.getElementById("cutsceneVeil");
+const cutsceneToggle = document.getElementById("cutsceneToggle");
+const deathCutscene = new DeathCutscene(scene, camera, cutsceneVeil);
+let activeCutscene = null;   // the cutscene currently owning the frame, or null
+let lastDeathPos = null;     // where the last fatal catch happened, for the cutscene
+
+// Persisted "play the death cutscene" preference (on by default).
+const CUTSCENE_KEY = "echo-cutscene";
+let cutsceneEnabled = localStorage.getItem(CUTSCENE_KEY) !== "off";
+cutsceneToggle.checked = cutsceneEnabled;
+cutsceneToggle.addEventListener("change", () => {
+  cutsceneEnabled = cutsceneToggle.checked;
+  localStorage.setItem(CUTSCENE_KEY, cutsceneEnabled ? "on" : "off");
+});
 
 // A transient line of text in the prompt slot — it outranks the contextual [E]
 // prompt while it lives.
@@ -819,6 +837,7 @@ function die() {
   }
 
   dead = true;
+  lastDeathPos = { x: player.pos.x, z: player.pos.z }; // for the cutscene, before we reset
   jumpscareOverlay.classList.remove("hidden");
   audio.jumpscare();
   setTimeout(() => {
@@ -920,6 +939,19 @@ tryAgainButton.addEventListener("click", async () => {
   // The daily score was already sent when you died (showGameOver). Wait for that
   // upload to land, then refresh so the retry starts on the newest build.
   await lastScoreSubmit;
+
+  // The send-off: unless it's switched off, one of them walks up, leaves a piece
+  // of you where you fell, and takes the camera too. Then home.
+  if (cutsceneEnabled && lastDeathPos) {
+    gameOverOverlay.classList.add("hidden");
+    activeCutscene = deathCutscene;
+    try {
+      await deathCutscene.play(lastDeathPos, { scare: () => audio.jumpscare() });
+    } finally {
+      activeCutscene = null;
+    }
+  }
+
   refreshBetweenGames();
 });
 
@@ -1381,6 +1413,15 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05); // clamp long frames (tab switch)
   last = now;
+
+  // A death cutscene owns the whole frame: it drives the camera and the scene
+  // itself, so we render what it sets up and skip every bit of gameplay logic.
+  if (activeCutscene) {
+    activeCutscene.update(dt);
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+    return;
+  }
 
   // Idling on the home screen: run the ambient scene behind the menu.
   if (!playing && !dead && !startOverlay.classList.contains("hidden")) {

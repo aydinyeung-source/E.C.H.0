@@ -147,6 +147,12 @@
             <option value="KeyR">R</option>
           </select>
         </div>
+        <div class="field field-check">
+          <label class="check-label" for="cutsceneToggle">
+            <input id="cutsceneToggle" type="checkbox" checked />
+            <span>Death cutscene</span>
+          </label>
+        </div>
         <p class="headphones-note">
           <strong>Headphones recommended:</strong> we use 3D spatial sound tracking
           to help you identify entities and make the game more immersive.
@@ -402,6 +408,11 @@
         </div>
       </div>
     </div>
+
+    <!-- Death cutscene veil: a flat black sheet the cutscene fades the scene in
+         from and slams back to at the kill. Sits over the canvas, under the
+         jumpscare. -->
+    <div id="cutsceneVeil" class="cutscene-veil hidden" aria-hidden="true"></div>
 
     <!-- Jumpscare, shown for a beat the instant an entity catches you. -->
     <div id="jumpscare" class="hidden" aria-hidden="true">

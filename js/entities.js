@@ -221,6 +221,11 @@ const POP_MAX_DIST = 70;            // the edge of the guaranteed-built world
 const MIN_SEPARATION = 22;
 const DESPAWN = 90;                 // drop ones that fall far behind, then re-place
 
+// A breach triggers a MANHUNT (see manhunt()). If nothing is at least this close
+// when it fires, one is placed out of sight to come and find you — a breach in a
+// quiet corner still has to mean something.
+const MANHUNT_NEAR = 45;
+
 // Their eyes give off the faintest red light. It reaches barely a couple of
 // metres — it will never light your way — but if one is close and behind you, the
 // wall beside you picks up a dim red wash. It's a warning you catch out of the
@@ -418,6 +423,27 @@ export class EntitySystem {
     entity.giveUpTimer = 0;
     entity.chaseTime = 0; // freshly provoked: full patience again
     entity.enrageTimer = Math.max(entity.enrageTimer, duration);
+  }
+
+  // THE MANHUNT. A safe-room door has been breached — you failed the task, and now
+  // there is no hiding it. For `duration` seconds every entity that can still see
+  // (not the crucifix-blinded ones) KNOWS where you are and keeps knowing it: it
+  // tracks your live position through walls and comes straight in, no stalking, no
+  // giving up until the timer runs out. Mechanically this is a blanket enrage.
+  //
+  // And if nothing is close enough to actually threaten you, one is brought in from
+  // out of sight (behind a wall — _place guarantees you never watch it arrive) so a
+  // breach in an empty stretch of maze still turns into a chase.
+  manhunt(duration, playerPos, world) {
+    for (const e of this.entities) this.enrage(e, duration);
+
+    if (!playerPos || !world) return;
+    const threatNear = this.entities.some(
+      (e) => e.blindTimer <= 0 && Math.hypot(e.x - playerPos.x, e.z - playerPos.z) < MANHUNT_NEAR
+    );
+    if (!threatNear && this._place(playerPos, world)) {
+      this.enrage(this.entities[this.entities.length - 1], duration);
+    }
   }
 
   // --- The home screen ------------------------------------------------------

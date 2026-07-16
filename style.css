@@ -987,6 +987,20 @@ button.secondary:hover {
   letter-spacing: 0.18em;
 }
 
+/* The door clock is nearly out. Flash the whole panel red so you feel it even
+   without reading the number. */
+#terminalOverlay.urgent .term-screen {
+  border-color: rgba(255, 60, 60, 0.75);
+  box-shadow: 0 0 40px rgba(255, 42, 42, 0.35) inset;
+  animation: termAlarm 0.5s steps(1) infinite;
+}
+
+@keyframes termAlarm {
+  50% {
+    box-shadow: 0 0 55px rgba(255, 42, 42, 0.6) inset;
+  }
+}
+
 .term-code {
   font-size: 2.6rem;
   font-weight: 700;
@@ -1397,6 +1411,36 @@ select:focus {
 
 #mcEat.acting:active {
   background: rgba(60, 210, 255, 0.28);
+}
+
+/* ASSEMBLING A CRUCIFIX. The USE button fills a cooldown wedge exactly like SEND
+   SONAR does, only cyan instead of gold — hold still and watch it close. Same
+   mechanics as #mcPing: overflow-clipped conic ::before under a z-lifted label,
+   driven per-frame from game.js via --combine (0..1). */
+#mcEat {
+  --combine: 0;
+}
+
+#mcEat.assembling {
+  overflow: hidden;
+  color: rgba(159, 240, 255, 0.55);
+  border-color: rgba(60, 210, 255, 0.4);
+}
+
+#mcEat.assembling::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(
+    rgba(60, 210, 255, 0.34) calc(var(--combine) * 360deg),
+    rgba(0, 0, 0, 0.66) 0
+  );
+  transition: none; /* driven per-frame; a transition would fight the loop */
+}
+
+#mcEat.assembling > span {
+  position: relative;
+  z-index: 1;
 }
 
 /* Game-over overlay. */

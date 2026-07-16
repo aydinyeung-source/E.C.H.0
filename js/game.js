@@ -18,7 +18,7 @@ import { SafeRooms } from "./saferoom.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.72.0";
+const VERSION = "v2.73.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -613,7 +613,16 @@ function renderTerminal() {
   if (!view) return;
 
   termTitle.textContent = view.title;
-  termLine.textContent = view.line;
+  // A running door clock (the terminal task) counts down right on the screen — the
+  // main HUD bar is behind this overlay, so this is the only place you can watch it.
+  if (view.timeLeft != null) {
+    const secs = Math.ceil(view.timeLeft);
+    termLine.textContent = `⏱ ${secs}s — ${view.line}`;
+    terminalOverlay.classList.toggle("urgent", secs <= 6);
+  } else {
+    termLine.textContent = view.line;
+    terminalOverlay.classList.remove("urgent");
+  }
   termProgress.textContent = `${view.index} / ${view.total}`;
 
   // THE KEYPAD SHOWS NOTHING. No code, no hint, and the digits you've entered come
@@ -1281,25 +1290,27 @@ function updateSafeRoomHud() {
   doorBar.classList.toggle("hidden", !hud);
   if (hud) {
     doorFill.style.width = hud.pct * 100 + "%";
-    doorBar.classList.toggle("under-siege", hud.sieging);
-    // The bar tracks whichever way in they're actually working on.
-    doorLabel.textContent = hud.vent ? "VENT" : "DOOR";
+    doorBar.classList.toggle("under-siege", hud.sieging || hud.task);
+    // The bar tracks whichever thing is at stake: a running task clock, or the way
+    // in they're actually working on.
+    doorLabel.textContent = hud.task ? "TASK" : hud.vent ? "VENT" : "DOOR";
   }
 
-  // Priority: a transient announcement, then a safe-room prompt, then the crucifix
-  // assembly progress. Only one line ever shows.
-  const text =
-    announceTimer > 0 ? announceText
-    : saferooms.prompt ? saferooms.prompt.text
-    : combinePrompt ? combinePrompt
-    : "";
+  // The only line that ever shows here is a transient announcement. Interactions no
+  // longer print a prompt — the fixture itself lights up when you're in reach — and
+  // the crucifix assembly reads off the USE button's cooldown ring, not text.
+  const text = announceTimer > 0 ? announceText : "";
   usePrompt.textContent = text;
   usePrompt.classList.toggle("hidden", !text);
 
   // The button always reads USE — it's one button and it does the obvious thing.
-  // It only picks up a cyan tint when it's about to act on the room rather than
-  // your inventory, which is a hint, not a relabelling.
+  // It picks up a cyan tint when it's about to act on the room rather than your
+  // inventory (a hint, not a relabelling), and fills a cooldown-style ring while a
+  // crucifix is being assembled — exactly like the SEND SONAR charge dial.
   mcEat.classList.toggle("acting", !!saferooms.prompt);
+  const combining = combineTimer > 0;
+  mcEat.classList.toggle("assembling", combining);
+  mcEat.style.setProperty("--combine", combining ? (1 - combineTimer / COMBINE_TIME).toFixed(3) : "0");
 
   renderTerminal();
 }

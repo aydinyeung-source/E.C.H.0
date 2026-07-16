@@ -61,6 +61,16 @@ const THUD_COOLDOWN = 0.7;
 const DECAY_PER_ENTITY = 1.7;
 
 const TASK_CODES = 3;           // codes to type before the task is done
+// THE TASK CLOCK. The moment you begin a task, this starts ticking, and it does not
+// stop for you closing the terminal or turning away — the machine is running whether
+// you're watching it or not. Run it out and the door BREACHES: it blows open, every
+// entity for two chunks hears it, and they come straight in. So a task is a bet
+// against the clock, and losing it means you're suddenly not safe and had better be
+// leaving — out the door you just lost, or down the vent.
+const TASK_TIME = 18;
+// After a breach, they don't just hear one bang and wander over — they KNOW where
+// you are and keep knowing it, for this long. See entities.manhunt().
+const BREACH_HUNT = 25;
 const TYPE_NOISE_SAFE = 13;     // how far your typing carries with the door intact
 const TYPE_NOISE_BREACHED = 30; // ...and with the door gone. A dinner bell.
 const TYPE_NOISE_INTERVAL = 2.0;
@@ -368,6 +378,11 @@ export class SafeRooms {
     // strip you can see from the doorway.
     this.trimMat = new THREE.MeshBasicMaterial({ color: 0x27e0ff });
     this.trimLitMat = new THREE.MeshBasicMaterial({ color: 0x8affd0 }); // once it's open
+    // The HIGHLIGHT. When you're in reach of a fixture it lights up bright white —
+    // that's the whole "you can use this" signal now, in place of a text prompt. One
+    // shared material, animated in update(), because only ever one fixture is the
+    // active one at a time.
+    this.hlMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     // The room's emergency lamp: the only light source in there, and it is red.
     this.lampMat = new THREE.MeshBasicMaterial({ color: 0xff3a2a });
     // Whatever the locker coughs up, in the same colours the item has everywhere
@@ -446,6 +461,7 @@ export class SafeRooms {
       // go.
       keypadTyped: "",
       task: { index: 0, done: false },
+      taskTimer: null, // seconds left once a task is STARTED (null = not started)
       lockerOpen: false,
       reward: REWARDS[n % REWARDS.length],
       props: [], // planks, and later the locker's contents
@@ -737,7 +753,9 @@ export class SafeRooms {
     // unbolt it from. From the corridor you can't even tell the vent is there.
     const grate = new THREE.Group();
     grate.position.set(0, midY, -outSign * (WALL_T / 2 + 0.04));
-    grate.add(this._box(this.metalMat, VENT_W, VENT_H, 0.03, 0, 0, 0));
+    const gratePlate = this._box(this.metalMat, VENT_W, VENT_H, 0.03, 0, 0, 0);
+    grate.add(gratePlate);
+    room.meshes.gratePlate = gratePlate; // the face we light up when it's usable
     for (let k = 0; k < 6; k++) {
       const slat = this._box(this.darkMetalMat, VENT_W - 0.1, 0.055, 0.05, 0, -VENT_H / 2 + 0.1 + k * 0.13, 0.03);
       slat.rotation.x = 0.45; // angled, so you can't see in
@@ -880,9 +898,9 @@ export class SafeRooms {
 
       // --- The door ---
       // Locked/closed: solid to everyone. Open: an `entityOnly` ward — you pass
-      // through the doorway, they cannot, even with it standing wide. SPENT: no box
-      // at all. That is the whole cost of having used the room.
-      if (room.door.state !== "spent") {
+      // through the doorway, they cannot, even with it standing wide. SPENT or
+      // BREACHED: no box at all — the way is open and anything walks through.
+      if (room.door.state !== "spent" && room.door.state !== "breached") {
         const box = boxFor(room.spec.door, DOOR_T / 2);
         if (room.door.state === "open") out.push({ ...box, entityOnly: true });
         else out.push(box);
@@ -933,7 +951,9 @@ export class SafeRooms {
   _pathGate(type, i, j) {
     const id = type + ":" + i + ":" + j;
     for (const room of this.rooms.values()) {
-      if (room.spec.door.id === id) return room.door.state !== "spent";
+      if (room.spec.door.id === id) {
+        return room.door.state !== "spent" && room.door.state !== "breached";
+      }
       if (room.spec.vent.id === id) return room.vent.state !== "breached";
     }
     return false;
@@ -1028,9 +1048,28 @@ export class SafeRooms {
       this._rebuildBounds();
     }
 
-    // A room is only a refuge while it's still sealed: the door unspent, and the
-    // vent not chewed open.
-    const compromised = room.door.state === "spent" || room.vent.state === "breached";
+    // THE TASK CLOCK. Once a task is started it counts down no matter what — closing
+    // the terminal doesn't pause it. Run it out and the door blows open (breached),
+    // which the entities hear and pour through.
+    if (
+      room.taskTimer !== null &&
+      !room.task.done &&
+      room.door.state !== "spent" &&
+      room.door.state !== "breached"
+    ) {
+      room.taskTimer -= dt;
+      if (room.taskTimer <= 0) {
+        room.taskTimer = 0;
+        this._breachDoor(room, player, world);
+      }
+    }
+
+    // A room is only a refuge while it's still sealed: the door unspent and unbreached,
+    // and the vent not chewed open.
+    const compromised =
+      room.door.state === "spent" ||
+      room.door.state === "breached" ||
+      room.vent.state === "breached";
     this.playerIsSafe = inside && !compromised;
 
     // WHERE they lay siege. They go for the VENT if you've had the grate off — it's
@@ -1047,14 +1086,58 @@ export class SafeRooms {
     this._terminalNoise(dt, room, player);
     this._interactions(room, player, holdingInteract, dt, inside);
 
-    // The only thing with a health bar is the vent — and only once you've opened it.
-    if (room.vent.state === "open") {
+    // Light up whatever fixture you're in reach of — the prompt-free "you can use
+    // this" cue. `this.prompt.kind` is set by _interactions just above.
+    this._applyHighlight(room, this.prompt ? this.prompt.kind : null);
+
+    // The status bar. A running TASK CLOCK takes priority (it's the thing about to
+    // ruin your day); otherwise, an opened vent shows its integrity.
+    if (room.taskTimer !== null && !room.task.done && room.door.state !== "breached") {
+      this.hud = { pct: room.taskTimer / TASK_TIME, sieging: false, vent: false, task: true };
+    } else if (room.vent.state === "open") {
       this.hud = {
         pct: room.vent.durability / VENT_MAX,
         sieging: room.underSiegeAt === "vent",
         vent: true,
       };
     }
+  }
+
+  // The task clock ran out (or, later, any other way a door gets forced). The door
+  // blows open, everything within DOOR_NOISE_RADIUS hears it, and they come in.
+  _breachDoor(room, player, world) {
+    if (room.door.state === "breached") return;
+    room.door.state = "breached";
+    room.taskTimer = null;
+    this.playerIsSafe = false;
+    this.entities.setSiege(null); // nothing left to besiege — the way is open
+    this._rebuildBounds();
+    this._applyDoorVisual(room);
+    this.audio.doorBreach();
+    // The sound notification: the breach carries for two chunks and pulls them in.
+    this.entities.hearNoise(room.spec.door.x, room.spec.door.z, DOOR_NOISE_RADIUS);
+    // THE MANHUNT. You failed the task — now they know exactly where you are. For
+    // BREACH_HUNT seconds every entity tracks your live position, and if none is
+    // close enough to matter, one is spawned out of your sight to come find you.
+    if (player && world) {
+      this.entities.manhunt(BREACH_HUNT, player.pos, world);
+    }
+    this.fx.breach(false);
+  }
+
+  // Light the active fixture bright white; return the rest to their normal look.
+  // Recomputed from scratch every frame, so it can't drift out of sync with state.
+  _applyHighlight(room, kind) {
+    const m = room.meshes;
+    const hl = this.hlMat;
+    if (m.keypadLamp) {
+      m.keypadLamp.material = kind === "keypad" ? hl : room.switchPulled ? this.trimLitMat : this.panicMat;
+    }
+    if (m.screen) m.screen.material = kind === "terminal" ? hl : this.screenMat;
+    if (m.lockerStrip) {
+      m.lockerStrip.material = kind === "locker" ? hl : room.lockerOpen ? this.trimLitMat : this.trimMat;
+    }
+    if (m.gratePlate) m.gratePlate.material = kind === "vent" ? hl : this.metalMat;
   }
 
   // --- The door: push-to-open, bounce off if locked, and swing shut behind you --
@@ -1065,8 +1148,8 @@ export class SafeRooms {
     const pz = player.pos.z;
     const dist = Math.hypot(d.x - px, d.z - pz);
 
-    if (st.state === "spent") {
-      this._applyDoorVisual(room, dt); // hangs open. forever.
+    if (st.state === "spent" || st.state === "breached") {
+      this._applyDoorVisual(room, dt); // hangs open (spent) / smashed in (breached).
       return;
     }
 
@@ -1131,15 +1214,22 @@ export class SafeRooms {
     const d = room.spec.door;
 
     // The door never takes damage, so the slab never changes shape — it only
-    // swings. Spent, it simply stands open and stays there.
+    // swings. Spent, it simply stands open and stays there. Breached, it gets
+    // flung wide and knocked off its hang — burst inward.
     const width = CELL * 0.94;
     slab.scale.set(d.horiz ? width : DOOR_T, DOOR_H, d.horiz ? DOOR_T : width);
     slab.position.set(0, DOOR_H / 2, 0);
 
-    const target = st.state === "open" || st.state === "spent" ? -Math.PI * 0.52 : 0;
+    const breached = st.state === "breached";
+    const target = breached
+      ? -Math.PI * 0.64
+      : st.state === "open" || st.state === "spent"
+        ? -Math.PI * 0.52
+        : 0;
     st.swing = st.swing === undefined ? target : st.swing;
-    st.swing += (target - st.swing) * Math.min(1, (dt || 0.016) * 7); // ease; it's heavy
+    st.swing += (target - st.swing) * Math.min(1, (dt || 0.016) * (breached ? 14 : 7));
     pivot.rotation.y = st.swing;
+    pivot.rotation.z = breached ? -0.12 : 0; // knocked askew on its hinges
   }
 
   // --- The siege: they hammer, and something gives -------------------------
@@ -1324,6 +1414,13 @@ export class SafeRooms {
     // so there is nothing to preserve.
     const typed = kind === "keypad" ? room.keypadTyped : "";
     this.terminal = { room, kind, typed };
+
+    // The instant you START the terminal task, the clock starts — and it never
+    // stops once running, not even by closing the panel. Beat it or get breached.
+    if (kind === "terminal" && room.taskTimer === null && !room.task.done) {
+      room.taskTimer = TASK_TIME;
+    }
+
     player.enabled = false;   // you cannot walk
     player.lookLocked = true; // and you cannot look — not at the corridor behind
     player.touchFwd = 0;      // you, not at the door, and NOT back at the code
@@ -1389,6 +1486,10 @@ export class SafeRooms {
       total: TASK_CODES,
       // "You are exposed" — the room is no longer sealed, so your typing carries.
       breached: room.door.state === "spent" || room.vent.state === "breached",
+      // Seconds left on the door clock (null before the task is started/after it's
+      // done) so the screen can count you down.
+      timeLeft: room.taskTimer !== null && !room.task.done ? Math.max(0, room.taskTimer) : null,
+      timeMax: TASK_TIME,
     };
   }
 

@@ -21,15 +21,21 @@ const BODY_COLOR = 0x26262c; // a shade lighter than the world-black, so it read
 const EYE_COLOR = 0xff2a2a;
 
 export class DeathCutscene {
-  constructor(scene, camera, veil) {
+  constructor(scene, camera, dom = {}) {
     this.scene = scene;
     this.camera = camera;
-    this.veil = veil;
+    this.veil = dom.veil || null;
+    this.cctv = dom.cctv || null;         // the security-feed overlay
+    this.camLabel = dom.camLabel || null; // "CAM 04"
+    this.timeLabel = dom.timeLabel || null;
+    this.feed = dom.feed || null;         // the scene canvas, for the desaturate filter
+    this.crosshair = dom.crosshair || null;
     this.active = false;
     this._resolve = null;
     this._t = 0;
     this._group = null;
     this._onSkip = null;
+    this._prevFov = null;
   }
 
   play(deathPos, hooks = {}) {
@@ -45,16 +51,26 @@ export class DeathCutscene {
     const center = new THREE.Vector3(deathPos.x, 0, deathPos.z);
     this.center = center;
 
-    // Camera vantage: near eye level, a couple of metres off the spot, looking at
-    // it. f is the horizontal direction FROM the camera TO the spot.
+    // Camera vantage: mounted HIGH in a corner, angled down at the spot, on a
+    // wide security-camera lens. f is the horizontal direction FROM camera TO spot.
     const a = Math.PI * 0.2;
-    const dist = 2.6;
+    const dist = 3.0;
     const f = new THREE.Vector3(Math.sin(a), 0, Math.cos(a));
     this.f = f;
     this.camPos = center.clone().add(f.clone().multiplyScalar(-dist));
-    this.camPos.y = 1.5;
+    this.camPos.y = 2.35;
+    this._prevFov = this.camera.fov;
+    this.camera.fov = 90; // wide, like a cheap wall cam
+    this.camera.updateProjectionMatrix();
     this.camera.position.copy(this.camPos);
-    this.camera.lookAt(center.x, 1.4, center.z);
+    this.camera.lookAt(center.x, 1.2, center.z);
+
+    // Dress the feed: show the CCTV overlay, desaturate the scene, drop the
+    // reticle (no white dot on a security monitor), name the camera.
+    if (this.cctv) this.cctv.classList.remove("hidden");
+    if (this.feed) this.feed.classList.add("cctv-feed");
+    if (this.crosshair) this.crosshair.classList.add("hidden");
+    if (this.camLabel) this.camLabel.textContent = "CAM 0" + (1 + Math.floor(Math.random() * 8));
 
     // "Stage right" — perpendicular to the view, for the entity's exit.
     this.right = new THREE.Vector3(f.z, 0, -f.x);
@@ -142,6 +158,16 @@ export class DeathCutscene {
     obj.rotation.y = Math.atan2(this.camPos.x - obj.position.x, this.camPos.z - obj.position.z);
   }
 
+  // Two-digit zero-padded.
+  _stamp() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, "0");
+    return (
+      `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}  ` +
+      `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+    );
+  }
+
   end() {
     if (!this.active) return;
     this.active = false;
@@ -150,6 +176,13 @@ export class DeathCutscene {
       window.removeEventListener("keydown", this._onSkip);
       this._onSkip = null;
     }
+    // Defensive restore (the page reloads right after, but never leave the shared
+    // camera on a wide lens or the feed filtered if that reload is ever delayed).
+    if (this._prevFov != null) {
+      this.camera.fov = this._prevFov;
+      this.camera.updateProjectionMatrix();
+    }
+    if (this.feed) this.feed.classList.remove("cctv-feed");
     if (this._resolve) this._resolve();
     this._resolve = null;
   }
@@ -158,6 +191,8 @@ export class DeathCutscene {
     if (!this.active) return;
     this._t += dt;
     const t = this._t;
+
+    if (this.timeLabel) this.timeLabel.textContent = this._stamp();
 
     // Timeline, in seconds.
     const A0 = 0.4; // approach begins

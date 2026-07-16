@@ -334,7 +334,39 @@ export class EntitySystem {
   // The ping is no longer a free look at the map. It is you shouting in the dark.
   hearSonar(x, z) {
     this.pingSight = PING_SIGHT;
-    return this.hearNoise(x, z, HEAR_RADIUS, true);
+    const heard = this.hearNoise(x, z, HEAR_RADIUS, true);
+    // A PING IS NEVER UNHEARD. If nothing was close enough for the noise to carry
+    // to, the single nearest one (that a crucifix hasn't deafened) still turns and
+    // commits to walking all the way to the spot, however far off it is — with
+    // enough patience on the clock to actually get there. You cannot ping into an
+    // empty stretch of maze and have nothing answer. Something always heard you.
+    if (heard === 0) return this._alertNearest(x, z) ? 1 : 0;
+    return heard;
+  }
+
+  // Wake the nearest hearing entity and send it to a spot regardless of distance.
+  // Returns true if one was alerted (false only if the region is empty or every
+  // entity is currently blinded).
+  _alertNearest(x, z) {
+    let best = null;
+    let bestD = Infinity;
+    for (const e of this.entities) {
+      if (e.blindTimer > 0) continue; // a crucifix has deafened it
+      const d = Math.hypot(e.x - x, e.z - z);
+      if (d < bestD) {
+        bestD = d;
+        best = e;
+      }
+    }
+    if (!best) return false;
+    best.giveUpTimer = 0; // it cares again
+    best.nx = x;
+    best.nz = z;
+    // Long enough to actually reach it, not just point that way and time out.
+    best.investigateTimer = Math.max(INVESTIGATE_TIME, bestD / INVESTIGATE_SPEED + 4);
+    best.path = null;
+    best.wanderPath = null;
+    return true;
   }
 
   // The safe-room siege. While you're sealed in, anything that already knows

@@ -1818,3 +1818,116 @@ select:focus {
   margin: 0;
   accent-color: var(--lamp);
 }
+
+/* ---------------------------------------------------------------------------
+   CCTV — the death cutscene is a security feed.
+   Scanlines, a slow rolling band, a vignette, a blinking REC light, a camera
+   label and a running timestamp, and hard corner brackets. The scene canvas
+   itself is desaturated with a CSS filter (.cctv-feed) for the monitor look.
+   No glow anywhere — a cheap camera does not glow.
+   --------------------------------------------------------------------------- */
+.cctv {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  pointer-events: none;
+  overflow: hidden;
+  font-family: "Courier New", monospace;
+}
+
+/* The scene, run through a grubby monochrome-ish security lens. */
+#scene.cctv-feed {
+  filter: grayscale(0.5) contrast(1.16) brightness(0.92) saturate(0.7);
+}
+
+.cctv-scan {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.16) 0px,
+    rgba(0, 0, 0, 0.16) 1px,
+    rgba(255, 255, 255, 0.02) 2px,
+    rgba(0, 0, 0, 0) 3px
+  );
+}
+
+.cctv-roll {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 90px;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.045) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: cctvRoll 7s linear infinite;
+}
+
+@keyframes cctvRoll {
+  from { top: -90px; }
+  to { top: 100%; }
+}
+
+.cctv-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 52%, rgba(0, 0, 0, 0.6) 100%);
+}
+
+.cctv-cam {
+  position: absolute;
+  top: 20px;
+  left: 24px;
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  color: rgba(232, 240, 232, 0.82);
+}
+
+.cctv-rec {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: #ff4a4a;
+}
+
+.cctv-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff2a2a;
+  animation: cctvBlink 1s steps(1) infinite;
+}
+
+@keyframes cctvBlink {
+  50% { opacity: 0.15; }
+}
+
+.cctv-time {
+  position: absolute;
+  bottom: 20px;
+  left: 24px;
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  color: rgba(232, 240, 232, 0.82);
+}
+
+.cctv-corner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border: 2px solid rgba(232, 240, 232, 0.45);
+}
+
+.cctv-corner.tl { top: 16px; left: 16px; border-right: none; border-bottom: none; }
+.cctv-corner.tr { top: 16px; right: 16px; border-left: none; border-bottom: none; }
+.cctv-corner.bl { bottom: 16px; left: 16px; border-right: none; border-top: none; }
+.cctv-corner.br { bottom: 16px; right: 16px; border-left: none; border-top: none; }

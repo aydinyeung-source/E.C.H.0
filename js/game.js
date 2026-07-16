@@ -19,7 +19,7 @@ import { DeathCutscene } from "./cutscene.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.78.0";
+const VERSION = "v2.79.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -173,7 +173,14 @@ const saferooms = new SafeRooms(scene, world, audio, entities, inv, fx);
 // while one is playing the main loop hands it the frame and does nothing else.
 const cutsceneVeil = document.getElementById("cutsceneVeil");
 const cutsceneToggle = document.getElementById("cutsceneToggle");
-const deathCutscene = new DeathCutscene(scene, camera, cutsceneVeil);
+const deathCutscene = new DeathCutscene(scene, camera, {
+  veil: cutsceneVeil,
+  cctv: document.getElementById("cctvOverlay"),
+  camLabel: document.getElementById("cctvCam"),
+  timeLabel: document.getElementById("cctvTime"),
+  feed: canvas,
+  crosshair: document.querySelector(".crosshair"),
+});
 let activeCutscene = null;   // the cutscene currently owning the frame, or null
 let lastDeathPos = null;     // where the last fatal catch happened, for the cutscene
 

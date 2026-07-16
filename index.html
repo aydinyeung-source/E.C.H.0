@@ -409,9 +409,21 @@
       </div>
     </div>
 
-    <!-- Death cutscene veil: a flat black sheet the cutscene fades the scene in
-         from and slams back to at the kill. Sits over the canvas, under the
-         jumpscare. -->
+    <!-- Death cutscene: a security-feed overlay (scanlines, vignette, REC light,
+         cam label + timestamp, corner brackets) laid over the scene, and above it
+         a flat black veil the cutscene fades in from and slams back to at the kill. -->
+    <div id="cctvOverlay" class="cctv hidden" aria-hidden="true">
+      <div class="cctv-scan"></div>
+      <div class="cctv-roll"></div>
+      <div class="cctv-vignette"></div>
+      <div class="cctv-cam" id="cctvCam">CAM 04</div>
+      <div class="cctv-rec"><span class="cctv-dot"></span>REC</div>
+      <div class="cctv-time" id="cctvTime">00:00:00</div>
+      <span class="cctv-corner tl"></span>
+      <span class="cctv-corner tr"></span>
+      <span class="cctv-corner bl"></span>
+      <span class="cctv-corner br"></span>
+    </div>
     <div id="cutsceneVeil" class="cutscene-veil hidden" aria-hidden="true"></div>
 
     <!-- Jumpscare, shown for a beat the instant an entity catches you. -->

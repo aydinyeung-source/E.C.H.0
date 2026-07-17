@@ -21,7 +21,7 @@ import { CHANGELOG } from "./changelog.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.87.0";
+const VERSION = "v2.87.1";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -1004,6 +1004,9 @@ tryAgainButton.addEventListener("click", async () => {
   // of you where you fell, and takes the camera too. Then home.
   if (cutsceneEnabled && lastDeathPos) {
     gameOverOverlay.classList.add("hidden");
+    // Light the room the way a ping would, so the cutscene isn't playing out in
+    // pitch black. A head-start age means it's revealed at once, not swept open.
+    sonar.pulse(new THREE.Vector3(lastDeathPos.x, 1.5, lastDeathPos.z), 1.0);
     activeCutscene = deathCutscene;
     try {
       await deathCutscene.play(lastDeathPos);
@@ -1478,6 +1481,8 @@ function loop(now) {
   // itself, so we render what it sets up and skip every bit of gameplay logic.
   if (activeCutscene) {
     activeCutscene.update(dt);
+    sonar.update(dt); // keep the reveal glowing so the scene stays lit
+    world.animate(now * 0.001);
     renderer.render(scene, camera);
     requestAnimationFrame(loop);
     return;

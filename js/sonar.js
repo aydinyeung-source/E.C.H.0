@@ -23,14 +23,17 @@ export class SonarSystem {
     this.cursor = 0;
   }
 
-  // Fire three staggered rings from `position`. Negative starting age delays a
-  // ring until its age crosses zero (the reveal ignores tsp < 0).
-  pulse(position) {
+  // Fire the ring(s) from `position`. Negative starting age delays a ring until
+  // its age crosses zero (the reveal ignores tsp < 0). `age0` gives it a HEAD
+  // START instead — a positive age means the wavefront is already out at
+  // radius age0*speed, so a large area lights instantly (used by the death
+  // cutscene to light the room at once rather than sweeping it open slowly).
+  pulse(position, age0 = 0) {
     for (let k = 0; k < WAVES_PER_CLICK; k++) {
       const slot = this.slots[this.cursor];
       this.cursor = (this.cursor + 1) % this.slots.length;
       slot.origin.copy(position);
-      slot.age = -k * WAVE_GAP;
+      slot.age = age0 - k * WAVE_GAP;
       slot.active = true;
     }
   }

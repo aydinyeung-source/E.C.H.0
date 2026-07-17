@@ -1931,3 +1931,84 @@ select:focus {
 .cctv-corner.tr { top: 16px; right: 16px; border-left: none; border-bottom: none; }
 .cctv-corner.bl { bottom: 16px; left: 16px; border-right: none; border-top: none; }
 .cctv-corner.br { bottom: 16px; right: 16px; border-left: none; border-top: none; }
+
+/* ---------------------------------------------------------------------------
+   UPDATE LOG — a left/right pager. One version's log per page; a long log
+   scrolls up and down inside its own panel. Flat, no glow.
+   --------------------------------------------------------------------------- */
+.panel-wide {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.cl-sheet {
+  position: relative;
+  width: min(540px, 92vw);
+  margin: auto;
+  padding: 26px 28px 24px;
+  border: 1px solid var(--panel-line);
+  border-radius: 3px;
+  background: rgba(14, 13, 7, 0.94);
+  text-align: center;
+}
+
+.cl-head {
+  margin: 0;
+  font-size: 1.5rem;
+  letter-spacing: 0.14em;
+  color: var(--lamp);
+}
+
+.cl-pager {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.cl-nav {
+  flex: none;
+  width: 48px;
+  padding: 0;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.cl-nav:disabled {
+  opacity: 0.3;
+}
+
+.cl-page {
+  flex: 1;
+  min-height: 140px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 16px 18px;
+  border: 1px solid var(--panel-line);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.28);
+  text-align: left;
+}
+
+.cl-ver {
+  margin-bottom: 10px;
+  font-family: "Courier New", monospace;
+  font-size: 1.05rem;
+  letter-spacing: 0.14em;
+  color: var(--lamp);
+}
+
+.cl-note {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: rgba(232, 227, 207, 0.9);
+}
+
+.cl-index {
+  margin-top: 14px;
+  font-family: "Courier New", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  color: var(--ink-soft);
+}

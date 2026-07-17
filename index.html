@@ -157,6 +157,7 @@
           <strong>Headphones recommended:</strong> we use 3D spatial sound tracking
           to help you identify entities and make the game more immersive.
         </p>
+        <button id="changelogButton" class="secondary panel-wide" type="button">Update Log</button>
         <p class="panel-version">Build <strong id="versionLabel">—</strong></p>
         </div>
       </div>
@@ -385,6 +386,21 @@
         </section>
 
         <button id="rulesCloseBottom" class="rules-open" type="button">Got it — back to the menu</button>
+      </div>
+    </div>
+
+    <!-- Update log: a pager. Left/right step between version logs; a long log
+         scrolls up and down inside its own panel. Filled from changelog.js. -->
+    <div class="overlay hidden" id="changelogOverlay">
+      <div class="cl-sheet">
+        <button id="changelogClose" class="rules-x" type="button" aria-label="Close">✕</button>
+        <h1 class="cl-head">Update Log</h1>
+        <div class="cl-pager">
+          <button id="clPrev" class="cl-nav" type="button" aria-label="Newer update">‹</button>
+          <div class="cl-page" id="clPage"></div>
+          <button id="clNext" class="cl-nav" type="button" aria-label="Older update">›</button>
+        </div>
+        <div class="cl-index" id="clIndex"></div>
       </div>
     </div>
 

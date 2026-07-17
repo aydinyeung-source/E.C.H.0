@@ -17,10 +17,11 @@ import { Radar } from "./radar.js";
 import { SafeRooms } from "./saferoom.js";
 import { SecurityCameras } from "./cctv.js";
 import { DeathCutscene } from "./cutscene.js";
+import { CHANGELOG } from "./changelog.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.84.0";
+const VERSION = "v2.85.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -89,6 +90,50 @@ const closeRules = () => rulesOverlay.classList.add("hidden");
 document.getElementById("rulesButton").addEventListener("click", openRules);
 document.getElementById("rulesClose").addEventListener("click", closeRules);
 document.getElementById("rulesCloseBottom").addEventListener("click", closeRules);
+
+// --- Update log: a left/right pager over CHANGELOG (newest first) -----------
+const changelogOverlay = document.getElementById("changelogOverlay");
+const clPage = document.getElementById("clPage");
+const clIndex = document.getElementById("clIndex");
+const clPrev = document.getElementById("clPrev");
+const clNext = document.getElementById("clNext");
+let clPos = 0;
+function renderChangelog() {
+  const e = CHANGELOG[clPos];
+  clPage.scrollTop = 0; // a fresh log always starts at the top
+  clPage.replaceChildren();
+  const ver = document.createElement("div");
+  ver.className = "cl-ver";
+  ver.textContent = "v" + e.v;
+  const note = document.createElement("p");
+  note.className = "cl-note";
+  note.textContent = e.note;
+  clPage.append(ver, note);
+  clIndex.textContent = `${clPos + 1} / ${CHANGELOG.length}`;
+  clPrev.disabled = clPos === 0;
+  clNext.disabled = clPos === CHANGELOG.length - 1;
+}
+function clStep(d) {
+  clPos = Math.max(0, Math.min(CHANGELOG.length - 1, clPos + d));
+  renderChangelog();
+}
+const openChangelog = () => {
+  clPos = 0;
+  renderChangelog();
+  changelogOverlay.classList.remove("hidden");
+};
+const closeChangelog = () => changelogOverlay.classList.add("hidden");
+document.getElementById("changelogButton").addEventListener("click", openChangelog);
+document.getElementById("changelogClose").addEventListener("click", closeChangelog);
+clPrev.addEventListener("click", () => clStep(-1));
+clNext.addEventListener("click", () => clStep(1));
+// Left/right arrows page between logs while it's open; Esc closes it.
+window.addEventListener("keydown", (e) => {
+  if (changelogOverlay.classList.contains("hidden")) return;
+  if (e.key === "ArrowLeft") clStep(-1);
+  else if (e.key === "ArrowRight") clStep(1);
+  else if (e.key === "Escape") closeChangelog();
+});
 
 // --- Three.js core ----------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -790,6 +835,7 @@ function beginPlay() {
   gameOverOverlay.classList.add("hidden");
   pauseOverlay.classList.add("hidden");
   rulesOverlay.classList.add("hidden"); // never leave the rulebook over the game
+  changelogOverlay.classList.add("hidden");
   setPlaying(true);
 
   // The free orientation ping fires ONCE, when the run first begins — not on every

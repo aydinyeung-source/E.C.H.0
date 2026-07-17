@@ -21,7 +21,7 @@ import { CHANGELOG } from "./changelog.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.86.1";
+const VERSION = "v2.87.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -1006,7 +1006,7 @@ tryAgainButton.addEventListener("click", async () => {
     gameOverOverlay.classList.add("hidden");
     activeCutscene = deathCutscene;
     try {
-      await deathCutscene.play(lastDeathPos, { scare: () => audio.jumpscare() });
+      await deathCutscene.play(lastDeathPos);
     } finally {
       activeCutscene = null;
     }

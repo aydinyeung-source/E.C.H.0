@@ -6,6 +6,7 @@
 // When you ship a release, add a line at the TOP.
 
 export const CHANGELOG = [
+  { v: "2.87.0", note: "The death sequence is now one continuous shot: you collapse into a piece of meat where you fell, and the feed cuts out." },
   { v: "2.86.0", note: "A sonar ping now enrages everything that hears it — they sprint to the spot, then calm down." },
   { v: "2.85.0", note: "This update log, in Settings — page left/right through every version back to the first build." },
   { v: "2.84.0", note: "Broken windows now look like a clean hole cut in the wall, not tiled panels." },

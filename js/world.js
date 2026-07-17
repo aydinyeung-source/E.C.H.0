@@ -897,6 +897,10 @@ export class World {
     // Rare bloody-writing material, applied to only a scattered few walls so it
     // stays a shock rather than plastering every surface.
     this.bloodMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 0, map: makeWallTexture(0.5, "blood") });
+    // A lineless plain wall. In flat mode a broken window is framed with THIS instead
+    // of the lined panel, so the opening reads as one clean chunk hollowed out of the
+    // wall rather than a cluster of tiled panels around a hole.
+    this.plainWallMat = new THREE.MeshPhongMaterial({ color: FLAT_WALL_COLOR, shininess: 0 });
     this.floorMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 0, map: makeFloorTexture() });
     // Ceiling is a plain flat colour (no map). White-yellow in flat mode.
     this.ceilMat = new THREE.MeshPhongMaterial({
@@ -939,7 +943,7 @@ export class World {
 
     // The world is unlit; the sonar rings (reveal.js) are what light surfaces.
     [
-      ...this.wallMats, this.bloodMat, this.floorMat, this.ceilMat,
+      ...this.wallMats, this.bloodMat, this.plainWallMat, this.floorMat, this.ceilMat,
       this.roomWallMat, this.roomFloorMat, this.roomCeilMat,
     ].forEach(installReveal);
     this.tileGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
@@ -961,11 +965,15 @@ export class World {
   //     and heard through a smashed window — it's a hole, not a mirror,
   //   * and because the wall still "exists" to wallPresent(), the entity
   //     pathfinder won't even try to route through it. It goes the long way.
-  _buildWall(type, i, j, list, bounds) {
+  _buildWall(type, i, j, list, bounds, windowList) {
     const horiz = type === 0;
     const cx = horiz ? (i + 0.5) * CELL : i * CELL;
     const cz = horiz ? j * CELL : (j + 0.5) * CELL;
     const halfT = WALL_T / 2;
+
+    // In flat mode the window is framed with the plain lineless wall so the hole
+    // reads as one clean cut-out; otherwise it uses the normal textured panel.
+    const frame = FLAT_WALLS && windowList ? windowList : list;
 
     if (!isWindow(type, i, j)) {
       list.push({
@@ -989,10 +997,10 @@ export class World {
     if (horiz) {
       const x0 = i * CELL;
       const x1 = (i + 1) * CELL;
-      list.push({ px: x0 + postW / 2, py: WALL_H / 2, pz: cz, sx: postW, sy: WALL_H, sz: WALL_T });
-      list.push({ px: x1 - postW / 2, py: WALL_H / 2, pz: cz, sx: postW, sy: WALL_H, sz: WALL_T });
-      list.push({ px: cx, py: WINDOW_H + lintelH / 2, pz: cz, sx: openW, sy: lintelH, sz: WALL_T }); // lintel
-      list.push({ px: cx, py: WINDOW_SILL / 2, pz: cz, sx: openW, sy: WINDOW_SILL, sz: WALL_T });    // sill
+      frame.push({ px: x0 + postW / 2, py: WALL_H / 2, pz: cz, sx: postW, sy: WALL_H, sz: WALL_T });
+      frame.push({ px: x1 - postW / 2, py: WALL_H / 2, pz: cz, sx: postW, sy: WALL_H, sz: WALL_T });
+      frame.push({ px: cx, py: WINDOW_H + lintelH / 2, pz: cz, sx: openW, sy: lintelH, sz: WALL_T }); // lintel
+      frame.push({ px: cx, py: WINDOW_SILL / 2, pz: cz, sx: openW, sy: WINDOW_SILL, sz: WALL_T });    // sill
 
       bounds.push({ minX: x0, maxX: x0 + postW, minZ: cz - halfT, maxZ: cz + halfT });
       bounds.push({ minX: x1 - postW, maxX: x1, minZ: cz - halfT, maxZ: cz + halfT });
@@ -1003,10 +1011,10 @@ export class World {
     } else {
       const z0 = j * CELL;
       const z1 = (j + 1) * CELL;
-      list.push({ px: cx, py: WALL_H / 2, pz: z0 + postW / 2, sx: WALL_T, sy: WALL_H, sz: postW });
-      list.push({ px: cx, py: WALL_H / 2, pz: z1 - postW / 2, sx: WALL_T, sy: WALL_H, sz: postW });
-      list.push({ px: cx, py: WINDOW_H + lintelH / 2, pz: cz, sx: WALL_T, sy: lintelH, sz: openW });
-      list.push({ px: cx, py: WINDOW_SILL / 2, pz: cz, sx: WALL_T, sy: WINDOW_SILL, sz: openW });
+      frame.push({ px: cx, py: WALL_H / 2, pz: z0 + postW / 2, sx: WALL_T, sy: WALL_H, sz: postW });
+      frame.push({ px: cx, py: WALL_H / 2, pz: z1 - postW / 2, sx: WALL_T, sy: WALL_H, sz: postW });
+      frame.push({ px: cx, py: WINDOW_H + lintelH / 2, pz: cz, sx: WALL_T, sy: lintelH, sz: openW });
+      frame.push({ px: cx, py: WINDOW_SILL / 2, pz: cz, sx: WALL_T, sy: WINDOW_SILL, sz: openW });
 
       bounds.push({ minX: cx - halfT, maxX: cx + halfT, minZ: z0, maxZ: z0 + postW });
       bounds.push({ minX: cx - halfT, maxX: cx + halfT, minZ: z1 - postW, maxZ: z1 });
@@ -1030,6 +1038,7 @@ export class World {
     //     unnaturally clean), with a rare few carrying bloody writing instead. ---
     const buckets = this.wallMats.map(() => []); // one instance list per variant
     const bloodInsts = [];
+    const plainInsts = []; // lineless frames for broken windows (flat mode)
     for (let di = 0; di < CHUNK_CELLS; di++) {
       for (let dj = 0; dj < CHUNK_CELLS; dj++) {
         const i = i0 + di;
@@ -1046,7 +1055,7 @@ export class World {
             hash2(i, j, type === 0 ? 811 : 911) < BLOOD_CHANCE
               ? bloodInsts
               : buckets[wallVariant(type, i, j)];
-          this._buildWall(type, i, j, list, bounds);
+          this._buildWall(type, i, j, list, bounds, plainInsts);
         }
       }
     }
@@ -1070,6 +1079,7 @@ export class World {
     };
     buckets.forEach((list, v) => addWalls(list, this.wallMats[v]));
     addWalls(bloodInsts, this.bloodMat);
+    addWalls(plainInsts, this.plainWallMat);
 
     // --- Floor & ceiling planes ---------------------------------------------
     const centerX = i0 * CELL + CHUNK_SIZE / 2;

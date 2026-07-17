@@ -21,7 +21,7 @@
 //     queues scores locally instead (see supabase.js pendingSync).
 // -----------------------------------------------------------------------------
 
-const CACHE_VERSION = "echo-v2.87.1";
+const CACHE_VERSION = "echo-v2.88.0";
 const THREE_CDN = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
 
 // The complete app shell.
@@ -48,6 +48,7 @@ const PRECACHE = [
   "./js/cctv.js",
   "./js/cutscene.js",
   "./js/changelog.js",
+  "./js/replay.js",
   "./js/radar.js",
   "./js/audio.js",
   "./js/menu.js",

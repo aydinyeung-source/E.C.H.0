@@ -6,6 +6,8 @@
 // When you ship a release, add a line at the TOP.
 
 export const CHANGELOG = [
+  { v: "2.88.0", note: "Spectate leaderboard runs: click a daily entry to watch that run play back through its maze. Pauses are skipped." },
+  { v: "2.87.1", note: "The death cutscene now lights the room, so you can actually see it." },
   { v: "2.87.0", note: "The death sequence is now one continuous shot: you collapse into a piece of meat where you fell, and the feed cuts out." },
   { v: "2.86.0", note: "A sonar ping now enrages everything that hears it — they sprint to the spot, then calm down." },
   { v: "2.85.0", note: "This update log, in Settings — page left/right through every version back to the first build." },

@@ -48,9 +48,13 @@ create table if not exists public.scores (
   seed       bigint not null,
   date       date not null,               -- daily-challenge date (UTC)
   distance   real not null default 0,      -- furthest distance explored, metres
+  replay     text,                         -- compact recording of the best run, for spectating
   created_at timestamptz not null default now(),
   unique (user_id, date)                   -- one best row per player per day
 );
+
+-- For databases created before spectating existed.
+alter table public.scores add column if not exists replay text;
 
 create index if not exists scores_date_distance_idx
   on public.scores (date, distance desc);
@@ -75,12 +79,37 @@ begin
     raise exception 'No profile for user';
   end if;
 
+  -- Keep the greater distance. Only overwrite seed WHEN the run actually improved,
+  -- so the stored seed always matches the stored distance (and thus the stored
+  -- replay). On an improvement the old replay is cleared; the client then calls
+  -- attach_replay() to store the new one.
   insert into public.scores (user_id, username, seed, date, distance)
   values (auth.uid(), v_username, p_seed, p_date, p_distance)
   on conflict (user_id, date) do update
     set distance   = greatest(public.scores.distance, excluded.distance),
-        seed       = excluded.seed,
+        seed       = case when excluded.distance > public.scores.distance
+                          then excluded.seed else public.scores.seed end,
+        replay     = case when excluded.distance > public.scores.distance
+                          then null else public.scores.replay end,
         created_at = now();
+end;
+$$;
+
+-- Attach the replay for the caller's current row on `p_date`. The client calls
+-- this right after submit_score, but ONLY when the run was a new personal best, so
+-- the stored replay always corresponds to the stored (best) distance and seed.
+create or replace function public.attach_replay(p_date date, p_replay text)
+returns void
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+  update public.scores
+    set replay = p_replay
+    where user_id = auth.uid() and date = p_date;
 end;
 $$;
 

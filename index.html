@@ -404,6 +404,17 @@
       </div>
     </div>
 
+    <!-- Spectating a leaderboard replay: a progress bar and an exit, over the
+         ghost-camera fly-through. -->
+    <div id="spectateOverlay" class="spectate hidden" aria-hidden="true">
+      <div class="spectate-panel">
+        <span class="spectate-label">SPECTATING</span>
+        <div class="spectate-bar"><div class="spectate-fill" id="spectateFill"></div></div>
+        <button id="spectateExit" class="secondary small" type="button">Exit</button>
+      </div>
+    </div>
+    <div id="spectateToast" class="spectate-toast hidden" aria-hidden="true"></div>
+
     <!-- Game-over overlay, shown when an entity catches the player. -->
     <div class="overlay hidden" id="gameOverOverlay">
       <div class="panel">

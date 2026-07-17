@@ -19,9 +19,10 @@ import { SecurityCameras } from "./cctv.js";
 import { DeathCutscene } from "./cutscene.js";
 import { CHANGELOG } from "./changelog.js";
 import { Menu } from "./menu.js";
-import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
+import { submitDistance, flushPendingScores, pendingSyncCount, fetchReplay } from "./supabase.js";
+import { ReplayRecorder, ReplayPlayback, decodeReplay, EYE_HEIGHT } from "./replay.js";
 
-const VERSION = "v2.87.1";
+const VERSION = "v2.88.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -223,6 +224,13 @@ const securityCams = new SecurityCameras(scene);
 // while one is playing the main loop hands it the frame and does nothing else.
 const cutsceneVeil = document.getElementById("cutsceneVeil");
 const cutsceneToggle = document.getElementById("cutsceneToggle");
+// Run recording (for spectating). The recorder samples the camera path while you
+// actively play — pauses aren't sampled, so they drop out of the replay for free.
+const recorder = new ReplayRecorder();
+const replayPlayback = new ReplayPlayback(camera);
+let activeSpectate = null;   // the playback currently owning the frame, or null
+let spectatePingTimer = 0;   // auto-reveal cadence while spectating
+
 const deathCutscene = new DeathCutscene(scene, camera, {
   veil: cutsceneVeil,
   cctv: document.getElementById("cctvOverlay"),
@@ -773,6 +781,7 @@ function startRun(rawSeedText, label, isDaily) {
   // switched off partway through to launder a run into a real score.
   run.playtest = Menu.isPlaytester && Menu.playtest;
   run.deaths = 0;
+  recorder.reset(); // start a fresh recording for this run
   deathCooldown = 0;
   renderDeathTag();
   playtestTag.classList.toggle("hidden", !run.playtest);
@@ -962,7 +971,8 @@ document.addEventListener("pointerlockchange", () => {
 function submitScoreIfDaily() {
   if (run.playtest) return Promise.resolve(); // an immune run is not a score.
   if (run.isDaily && run.maxDistance > 0) {
-    return submitDistance({ seed: run.seed, date: run.date, distance: run.maxDistance })
+    const replay = recorder.encoded(); // the run we just played, for spectating
+    return submitDistance({ seed: run.seed, date: run.date, distance: run.maxDistance, replay })
       .then(() => Menu.refreshLeaderboard(run.date))
       .catch(() => {}); // a failed submit must never block the reload
   }
@@ -994,6 +1004,71 @@ function restageMenu() {
   menuDrift = 0;
   menuPing = 1.5;
 }
+
+// --- Spectating a leaderboard run -------------------------------------------
+// Rebuild the run's maze from its seed and fly the recorded camera path through
+// it. The maze is deterministic, so the walls, loot and rooms are exactly what
+// that player saw; entities aren't replayed (they were never deterministic), so
+// the maze is empty — you're watching where they went and how far. A ping fires
+// on a timer so the path lights up ahead of the ghost camera.
+const spectateOverlay = document.getElementById("spectateOverlay");
+const spectateFill = document.getElementById("spectateFill");
+const spectateToast = document.getElementById("spectateToast");
+let toastTimer = null;
+function toast(text) {
+  if (!spectateToast) return;
+  spectateToast.textContent = text;
+  spectateToast.classList.remove("hidden");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => spectateToast.classList.add("hidden"), 2200);
+}
+
+async function spectateRun(row) {
+  if (!row || row.id == null || activeSpectate) return;
+  toast("Loading replay…");
+  const rep = await fetchReplay(row.id);
+  const decoded = rep && decodeReplay(rep.replay);
+  if (!decoded || decoded.samples.length < 2) {
+    toast("No replay saved for this run.");
+    return;
+  }
+
+  // Rebuild that run's world from its seed.
+  setWorldSeed(Number(rep.seed) >>> 0);
+  world.reset();
+  const first = decoded.samples[0];
+  const start = new THREE.Vector3(first.x, EYE_HEIGHT, first.z);
+  player.reset(start);
+  player.enabled = false; // the camera is on rails now
+  world.update(start);
+  entities.reset();       // no entities in a replay
+  securityCams.reset();
+  saferooms.reset();
+  saferooms.sync(start);
+
+  startOverlay.classList.add("hidden");
+  changelogOverlay.classList.add("hidden");
+  spectateToast.classList.add("hidden");
+  spectateOverlay.classList.remove("hidden");
+  document.querySelector(".crosshair")?.classList.add("hidden");
+
+  replayPlayback.load(decoded);
+  spectatePingTimer = 0;
+  activeSpectate = replayPlayback;
+}
+
+function exitSpectate() {
+  if (!activeSpectate) return;
+  activeSpectate = null;
+  replayPlayback.active = false;
+  spectateOverlay.classList.add("hidden");
+  document.querySelector(".crosshair")?.classList.remove("hidden");
+  player.enabled = true;
+  startOverlay.classList.remove("hidden");
+  restageMenu();
+}
+document.getElementById("spectateExit").addEventListener("click", exitSpectate);
+Menu.onSpectate = (row) => spectateRun(row);
 
 tryAgainButton.addEventListener("click", async () => {
   // The daily score was already sent when you died (showGameOver). Wait for that
@@ -1488,6 +1563,26 @@ function loop(now) {
     return;
   }
 
+  // Spectating a leaderboard replay: the playback drives the camera; we stream the
+  // maze around it and auto-ping so the path stays lit.
+  if (activeSpectate) {
+    activeSpectate.update(dt);
+    const p = activeSpectate.pos;
+    world.update(p);
+    world.animate(now * 0.001);
+    spectatePingTimer -= dt;
+    if (spectatePingTimer <= 0) {
+      sonar.pulse(new THREE.Vector3(p.x, 1.5, p.z), 0.6);
+      spectatePingTimer = 1.4;
+    }
+    sonar.update(dt);
+    if (spectateFill) spectateFill.style.width = (activeSpectate.progress() * 100).toFixed(1) + "%";
+    renderer.render(scene, camera);
+    if (activeSpectate.done) exitSpectate();
+    requestAnimationFrame(loop);
+    return;
+  }
+
   // Idling on the home screen: run the ambient scene behind the menu.
   if (!playing && !dead && !startOverlay.classList.contains("hidden")) {
     updateMenuScene(dt);
@@ -1552,6 +1647,10 @@ function loop(now) {
 
     // The watchers in the corners — placed occasionally, turning to follow you.
     securityCams.update(dt, player.pos, world);
+
+    // Record the camera path for spectating. Only sampled here, in the active-play
+    // block, so paused time never makes it into the replay.
+    recorder.sample(dt, player.pos, player.yaw, player.pitch);
 
     // Safe rooms: streaming, the door, the siege, the props, the prompts. Runs
     // AFTER the entities so it sees this frame's blows against the door.

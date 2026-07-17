@@ -94,6 +94,9 @@ export const Menu = {
   // a dead session.
   onSessionRevoked: null,
 
+  // game.js sets this to start spectating a clicked leaderboard row ({id, seed}).
+  onSpectate: null,
+
   async _checkSession() {
     if (!this.user) return;
     if (await isSessionValid()) return;
@@ -216,6 +219,13 @@ export const Menu = {
       const dist = document.createElement("strong");
       dist.textContent = `${Math.round(row.distance)} cells`;
       li.append(name, dist);
+      // Click a run to spectate it (rows from the server carry an id + seed; the
+      // local-only fallback row has neither, so it isn't clickable).
+      if (row.id != null) {
+        li.classList.add("spectatable");
+        li.title = "Watch this run";
+        li.addEventListener("click", () => this.onSpectate?.(row));
+      }
       this.list.appendChild(li);
     });
   },

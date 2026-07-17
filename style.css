@@ -2012,3 +2012,80 @@ select:focus {
   letter-spacing: 0.14em;
   color: var(--ink-soft);
 }
+
+/* ---------------------------------------------------------------------------
+   SPECTATE — watching a leaderboard replay. A slim bar of chrome over the
+   ghost-camera fly-through, plus a toast for load/no-replay messages.
+   --------------------------------------------------------------------------- */
+.spectate {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 32;
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.spectate-panel {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(560px, 92vw);
+  padding: 10px 14px;
+  border: 1px solid var(--panel-line);
+  border-radius: 3px;
+  background: rgba(10, 9, 5, 0.82);
+  pointer-events: auto;
+}
+
+.spectate-label {
+  flex: none;
+  font-family: "Courier New", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  color: var(--lamp);
+}
+
+.spectate-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(232, 227, 207, 0.14);
+  overflow: hidden;
+}
+
+.spectate-fill {
+  width: 0%;
+  height: 100%;
+  background: var(--lamp);
+}
+
+.spectate-toast {
+  position: fixed;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 33;
+  padding: 8px 16px;
+  border: 1px solid var(--panel-line);
+  border-radius: 3px;
+  background: rgba(10, 9, 5, 0.9);
+  color: var(--ink);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
+
+/* A leaderboard run you can watch. */
+.leaderboard li.spectatable {
+  cursor: pointer;
+  transition: background 0.12s linear, border-color 0.12s linear;
+}
+
+.leaderboard li.spectatable:hover {
+  background: rgba(216, 200, 64, 0.14);
+  border-color: rgba(216, 200, 64, 0.5);
+}

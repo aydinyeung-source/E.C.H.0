@@ -281,7 +281,9 @@ export async function flushPendingScores() {
   return { ok: true, synced, remaining: remaining.length };
 }
 
-export async function submitDistance({ seed, date, distance }) {
+export async function submitDistance({ seed, date, distance, replay = null }) {
+  const prevBest = readLocal()[date] || 0;
+  const isBest = distance > prevBest; // a new personal best -> its replay is the one to keep
   recordLocalBest(date, distance); // the local best is always kept
 
   // Don't even open a socket if the device knows it's offline — queue it.
@@ -303,7 +305,32 @@ export async function submitDistance({ seed, date, distance }) {
   // navigator.onLine lies (it only means "has a network interface", not "can
   // reach the internet"), so a failure here still gets queued for retry.
   if (error) return { ok: false, queued: queueScore({ seed, date, distance }), error };
+
+  // Store the replay for the run we just kept as the best. Best-effort: a database
+  // that hasn't run the spectating migration simply has no attach_replay RPC, so
+  // this errors and is ignored — the score itself is already safely in.
+  if (isBest && replay) {
+    try {
+      await client.rpc("attach_replay", { p_date: date, p_replay: replay });
+    } catch {
+      /* older DB without the RPC — spectating just won't be available */
+    }
+  }
   return { ok: true };
+}
+
+// The replay + seed for one leaderboard row, fetched on demand when you click it
+// to spectate (replays are large, so they're never loaded with the list).
+export async function fetchReplay(id) {
+  const client = await loadClient();
+  if (!client) return null;
+  const { data, error } = await client
+    .from("scores")
+    .select("replay, seed")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data || !data.replay) return null;
+  return { replay: data.replay, seed: data.seed };
 }
 
 // Anonymous by design: the board is ranked runs, not names. We don't even fetch
@@ -316,9 +343,11 @@ export async function fetchDailyLeaderboard(date, limit = 10) {
     const rows = best ? [{ distance: best }] : [];
     return { ok: true, rows, local: true };
   }
+  // id + seed come along so a row can be spectated (fetch its replay by id, and
+  // rebuild its maze from the seed) — but never the username.
   const { data, error } = await client
     .from("scores")
-    .select("distance")
+    .select("id, seed, distance")
     .eq("date", date)
     .order("distance", { ascending: false })
     .limit(limit);

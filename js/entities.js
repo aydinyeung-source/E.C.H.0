@@ -306,7 +306,7 @@ export class EntitySystem {
   // and in here noise is the only currency that matters.
   // `wake` = this noise is loud/strange enough to drag back even something that had
   // given up on you and wandered off. Only the SONAR does that.
-  hearNoise(x, z, radius = HEAR_RADIUS, wake = false) {
+  hearNoise(x, z, radius = HEAR_RADIUS, wake = false, rush = false) {
     let heard = 0;
     for (const e of this.entities) {
       if (e.blindTimer > 0) continue;                      // deafened too
@@ -316,6 +316,7 @@ export class EntitySystem {
       e.nx = x; // where the noise came from
       e.nz = z;
       e.investigateTimer = INVESTIGATE_TIME;
+      if (rush) e.rushing = true; // a ping doesn't just draw it — it RUSHES the spot
       e.path = null;
       e.wanderPath = null; // it stops what it was doing
       heard++;
@@ -334,7 +335,7 @@ export class EntitySystem {
   // The ping is no longer a free look at the map. It is you shouting in the dark.
   hearSonar(x, z) {
     this.pingSight = PING_SIGHT;
-    const heard = this.hearNoise(x, z, HEAR_RADIUS, true);
+    const heard = this.hearNoise(x, z, HEAR_RADIUS, true, true); // rush the spot
     // A PING IS NEVER UNHEARD. If nothing was close enough for the noise to carry
     // to, the single nearest one (that a crucifix hasn't deafened) still turns and
     // commits to walking all the way to the spot, however far off it is — with
@@ -362,6 +363,7 @@ export class EntitySystem {
     best.giveUpTimer = 0; // it cares again
     best.nx = x;
     best.nz = z;
+    best.rushing = true; // enraged toward the ping until it arrives
     // Long enough to actually reach it, not just point that way and time out.
     best.investigateTimer = Math.max(INVESTIGATE_TIME, bestD / INVESTIGATE_SPEED + 4);
     best.path = null;
@@ -432,6 +434,7 @@ export class EntitySystem {
       e.blindTimer = duration;
       e.huntTimer = 0;        // it loses you entirely
       e.investigateTimer = 0; // and forgets the noise it was chasing
+      e.rushing = false;      // and stops rushing a ping
       e.enrageTimer = 0;      // and snaps out of any torch rage
       e.aggroTimer = 0;       // the crucifix is the ONE thing that ends a fixation
       e.stareTime = 0;
@@ -567,6 +570,7 @@ export class EntitySystem {
       nx: x, nz: z,        // where the last NOISE came from
       huntTimer: 0,        // >0 while it's actively hunting you (needs sight)
       investigateTimer: 0, // >0 while it's going to look into a noise
+      rushing: false,      // enraged toward a ping until it reaches the spot
       blindTimer: 0,
       enrageTimer: 0,
       chaseTime: 0,        // how long this pursuit has been going on and failing
@@ -649,6 +653,7 @@ export class EntitySystem {
     e.huntTimer = 0;
     e.investigateTimer = 0;
     e.enrageTimer = 0;
+    e.rushing = false;
     e.aggroTimer = 0; // whatever fixated it has long since worn off by now
     e.stareTime = 0;
     e.chaseTime = 0;
@@ -883,11 +888,16 @@ export class EntitySystem {
       // It heard the sonar and is going to look. It does NOT know where you are —
       // it only knows where the sound came from. Get out of the way and it will
       // arrive, find nothing, and give up.
+      //
+      // A SONAR ping does more than draw it: it's ENRAGED toward the spot, RUSHING
+      // there at chase speed, until it arrives — then it calms to a normal search.
       if (!hunting) {
         if (e.investigateTimer > 0) {
           e.investigateTimer -= dt;
-          this._goTo(e, dt, world, e.nx, e.nz, INVESTIGATE_SPEED);
+          if (e.rushing && Math.hypot(e.x - e.nx, e.z - e.nz) < 1.2) e.rushing = false;
+          this._goTo(e, dt, world, e.nx, e.nz, e.rushing ? CHASE_SPEED : INVESTIGATE_SPEED);
         } else {
+          e.rushing = false;
           this._wander(e, dt, world); // back to its day
         }
         continue;

@@ -212,7 +212,7 @@ export const Menu = {
     rows.forEach((row, i) => {
       const li = document.createElement("li");
       const name = document.createElement("span");
-      name.textContent = `${i + 1}. ${row.username || "anon"}`;
+      name.textContent = `#${i + 1}`; // anonymous — a ranked run, not a name
       const dist = document.createElement("strong");
       dist.textContent = `${Math.round(row.distance)} cells`;
       li.append(name, dist);

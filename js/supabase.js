@@ -306,17 +306,19 @@ export async function submitDistance({ seed, date, distance }) {
   return { ok: true };
 }
 
+// Anonymous by design: the board is ranked runs, not names. We don't even fetch
+// the username — only the distance (and enough to spectate the run; see below).
 export async function fetchDailyLeaderboard(date, limit = 10) {
   const client = await loadClient();
   if (!client) {
     const store = readLocal();
     const best = store[date];
-    const rows = best ? [{ username: "You (local)", distance: best }] : [];
+    const rows = best ? [{ distance: best }] : [];
     return { ok: true, rows, local: true };
   }
   const { data, error } = await client
     .from("scores")
-    .select("username, distance")
+    .select("distance")
     .eq("date", date)
     .order("distance", { ascending: false })
     .limit(limit);

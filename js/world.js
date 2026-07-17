@@ -148,18 +148,18 @@ export function setWorldSeed(seed) {
 // grimy wallpaper is preserved intact below as makeWallTextureDetailed(); flip
 // FLAT_WALLS back to false to restore it exactly as it was.
 const FLAT_WALLS = true;
-const FLAT_WALL_COLOR = "#f2eccb";            // pale white-yellow
-const FLAT_EDGE_COLOR = "rgba(64, 54, 12, 0.6)"; // dark corner/edge shading
+const FLAT_WALL_COLOR = "#f2eccb";              // pale white-yellow
+const FLAT_LINE_COLOR = "rgba(38, 32, 6, 0.9)"; // solid line marking where a wall ends
 
 function makeWallTexture(grime, kind) {
   return FLAT_WALLS ? makeFlatWallTexture(kind) : makeWallTextureDetailed(grime, kind);
 }
 
-// Plain white-yellow, but with a darker band shading every edge of the panel —
-// strongest at the very corner and fading inward. With repeat (1,1) each wall
-// segment is ONE panel, so those bands land on the real corners (where two walls
-// meet) and on the floor and ceiling lines — the only cues you get for navigation
-// once everything else goes flat. The blood variant keeps its scrawl.
+// Plain white-yellow with a single solid VERTICAL line at each end of the panel —
+// the only marker, so you can see where a wall stops (its corners). No horizontal
+// lines, and no bloody scrawl — every wall is identical. With repeat (1,1) one
+// panel = one wall segment, so the lines land exactly on the wall ends. (`kind` is
+// ignored now; the blood variant is just another plain wall in flat mode.)
 function makeFlatWallTexture(kind) {
   const c = document.createElement("canvas");
   c.width = c.height = 256;
@@ -168,24 +168,14 @@ function makeFlatWallTexture(kind) {
   g.fillStyle = FLAT_WALL_COLOR;
   g.fillRect(0, 0, 256, 256);
 
-  const E = 30; // edge band width, px
-  const band = (x0, y0, x1, y1, x, y, w, h) => {
-    const grd = g.createLinearGradient(x0, y0, x1, y1);
-    grd.addColorStop(0, FLAT_EDGE_COLOR);
-    grd.addColorStop(1, "rgba(0,0,0,0)");
-    g.fillStyle = grd;
-    g.fillRect(x, y, w, h);
-  };
-  band(0, 0, E, 0, 0, 0, E, 256);             // left
-  band(256, 0, 256 - E, 0, 256 - E, 0, E, 256); // right
-  band(0, 0, 0, E, 0, 0, 256, E);             // top (ceiling line)
-  band(0, 256, 0, 256 - E, 0, 256 - E, 256, E); // bottom (floor line)
-
-  if (kind === "blood") drawBloodScrawl(g);
+  const W = 5; // line width, px
+  g.fillStyle = FLAT_LINE_COLOR;
+  g.fillRect(0, 0, W, 256);       // left end
+  g.fillRect(256 - W, 0, W, 256); // right end
 
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(1, 1); // one panel per wall segment, so edges sit on real corners
+  t.repeat.set(1, 1); // one panel per wall segment, so the lines sit on real corners
   return t;
 }
 

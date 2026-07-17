@@ -142,7 +142,56 @@ export function setWorldSeed(seed) {
 // `grime` (0..1) drives how filthy the wall is. At 0 you get an unnaturally
 // clean, pristine wall — which reads as deeply wrong next to a filthy one. Every
 // variant draws its own random blotches, so no two walls share a stain pattern.
+//
+// FLAT_WALLS: the active wall is now a plain, pale WHITE-YELLOW, uniform the whole
+// way through — no wallpaper stripes, grime, stains or wainscot. The old detailed
+// grimy wallpaper is preserved intact below as makeWallTextureDetailed(); flip
+// FLAT_WALLS back to false to restore it exactly as it was.
+const FLAT_WALLS = true;
+const FLAT_WALL_COLOR = "#f2eccb"; // pale white-yellow
+
 function makeWallTexture(grime, kind) {
+  return FLAT_WALLS ? makeFlatWallTexture(kind) : makeWallTextureDetailed(grime, kind);
+}
+
+// Plain white-yellow, flat edge to edge. The blood variant keeps its scrawl, now
+// on a clean wall.
+function makeFlatWallTexture(kind) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+
+  g.fillStyle = FLAT_WALL_COLOR;
+  g.fillRect(0, 0, 256, 256);
+
+  if (kind === "blood") drawBloodScrawl(g);
+
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(2, 1);
+  return t;
+}
+
+// The bloody wall scrawl, shared by both the flat and the detailed wall.
+function drawBloodScrawl(g) {
+  const words = ["GET OUT", "NO EXIT", "TURN BACK", "IT SEES YOU"];
+  const word = words[Math.floor(Math.random() * words.length)];
+  g.save();
+  g.translate(22, 112);
+  g.rotate(-0.08);
+  g.fillStyle = "rgba(120,0,0,0.92)";
+  g.font = "bold 40px Georgia, serif";
+  g.fillText(word, 0, 0);
+  for (let i = 0; i < 28; i++) {
+    const dx = Math.random() * 210;
+    g.fillRect(dx, 6, 2, Math.random() * 48); // drips
+  }
+  g.restore();
+}
+
+// PRESERVED — the original grimy yellow wallpaper (stripes, grime, stains, a
+// wainscot line and the blood scrawl). Reachable again by setting FLAT_WALLS=false.
+function makeWallTextureDetailed(grime, kind) {
   const c = document.createElement("canvas");
   c.width = c.height = 256;
   const g = c.getContext("2d");
@@ -177,21 +226,7 @@ function makeWallTexture(grime, kind) {
   g.fillRect(0, 200, 256, 5);
 
   // Bloody scrawl (only on the dedicated blood material).
-  if (kind === "blood") {
-    const words = ["GET OUT", "NO EXIT", "TURN BACK", "IT SEES YOU"];
-    const word = words[Math.floor(Math.random() * words.length)];
-    g.save();
-    g.translate(22, 112);
-    g.rotate(-0.08);
-    g.fillStyle = "rgba(120,0,0,0.92)";
-    g.font = "bold 40px Georgia, serif";
-    g.fillText(word, 0, 0);
-    for (let i = 0; i < 28; i++) {
-      const dx = Math.random() * 210;
-      g.fillRect(dx, 6, 2, Math.random() * 48); // drips
-    }
-    g.restore();
-  }
+  if (kind === "blood") drawBloodScrawl(g);
 
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;

@@ -22,7 +22,7 @@ import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount, fetchReplay } from "./supabase.js";
 import { ReplayRecorder, ReplayPlayback, decodeReplay, EYE_HEIGHT } from "./replay.js";
 
-const VERSION = "v2.88.0";
+const VERSION = "v2.89.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -227,9 +227,8 @@ const cutsceneToggle = document.getElementById("cutsceneToggle");
 // Run recording (for spectating). The recorder samples the camera path while you
 // actively play — pauses aren't sampled, so they drop out of the replay for free.
 const recorder = new ReplayRecorder();
-const replayPlayback = new ReplayPlayback(camera);
+const replayPlayback = new ReplayPlayback(scene, camera);
 let activeSpectate = null;   // the playback currently owning the frame, or null
-let spectatePingTimer = 0;   // auto-reveal cadence while spectating
 
 const deathCutscene = new DeathCutscene(scene, camera, {
   veil: cutsceneVeil,
@@ -855,6 +854,7 @@ function beginPlay() {
   if (openingPingPending) {
     openingPingPending = false;
     sonar.pulse(player.pos);
+    recorder.markPing(); // the opening reveal, replayed at the start of a spectate
     radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
   }
 }
@@ -1053,14 +1053,13 @@ async function spectateRun(row) {
   document.querySelector(".crosshair")?.classList.add("hidden");
 
   replayPlayback.load(decoded);
-  spectatePingTimer = 0;
   activeSpectate = replayPlayback;
 }
 
 function exitSpectate() {
   if (!activeSpectate) return;
   activeSpectate = null;
-  replayPlayback.active = false;
+  replayPlayback.dispose(); // hide the ghost inhabitants
   spectateOverlay.classList.add("hidden");
   document.querySelector(".crosshair")?.classList.remove("hidden");
   player.enabled = true;
@@ -1239,6 +1238,7 @@ function fireSonar() {
   energy = Math.max(0, energy - sonarCost()); // quarter of the rest, plus a flat 6
   audio.sonar(); // the outgoing ping — you hear yourself send it
   sonar.pulse(player.pos);
+  recorder.markPing(); // so the replay lights the maze at this same moment
   radar.ping(player.pos, performance.now() / 1000, world, entities.entities);
   // The sonar itself is SILENT to the player — no ping, no blip. The entities
   // still "hear" it in-fiction and converge on you; you just don't get an audio
@@ -1563,17 +1563,16 @@ function loop(now) {
     return;
   }
 
-  // Spectating a leaderboard replay: the playback drives the camera; we stream the
-  // maze around it and auto-ping so the path stays lit.
+  // Spectating a leaderboard replay: the playback drives the camera and the ghost
+  // inhabitants; we stream the maze around it and fire the run's OWN pings at the
+  // moments they were fired, so the maze lights up exactly as it did for them.
   if (activeSpectate) {
     activeSpectate.update(dt);
     const p = activeSpectate.pos;
     world.update(p);
     world.animate(now * 0.001);
-    spectatePingTimer -= dt;
-    if (spectatePingTimer <= 0) {
-      sonar.pulse(new THREE.Vector3(p.x, 1.5, p.z), 0.6);
-      spectatePingTimer = 1.4;
+    for (const ping of activeSpectate.poll()) {
+      sonar.pulse(new THREE.Vector3(ping.x, 1.5, ping.z), 0);
     }
     sonar.update(dt);
     if (spectateFill) spectateFill.style.width = (activeSpectate.progress() * 100).toFixed(1) + "%";
@@ -1648,9 +1647,9 @@ function loop(now) {
     // The watchers in the corners — placed occasionally, turning to follow you.
     securityCams.update(dt, player.pos, world);
 
-    // Record the camera path for spectating. Only sampled here, in the active-play
-    // block, so paused time never makes it into the replay.
-    recorder.sample(dt, player.pos, player.yaw, player.pitch);
+    // Record the camera path AND the nearby inhabitants for spectating. Only
+    // sampled here, in the active-play block, so paused time never makes it in.
+    recorder.sample(dt, player.pos, player.yaw, player.pitch, entities.entities);
 
     // Safe rooms: streaming, the door, the siege, the props, the prompts. Runs
     // AFTER the entities so it sees this frame's blows against the door.

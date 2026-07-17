@@ -6,6 +6,7 @@
 // When you ship a release, add a line at the TOP.
 
 export const CHANGELOG = [
+  { v: "2.89.0", note: "Spectated runs now show the other inhabitants moving and the player's own sonar pings, not just their path." },
   { v: "2.88.0", note: "Spectate leaderboard runs: click a daily entry to watch that run play back through its maze. Pauses are skipped." },
   { v: "2.87.1", note: "The death cutscene now lights the room, so you can actually see it." },
   { v: "2.87.0", note: "The death sequence is now one continuous shot: you collapse into a piece of meat where you fell, and the feed cuts out." },

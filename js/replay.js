@@ -2,19 +2,28 @@
 // -----------------------------------------------------------------------------
 // Run replays, for spectating a leaderboard run after the fact.
 //
-// The world is SEED-DETERMINISTIC, so to replay a run we don't need to record the
-// whole world — just the camera. A Recorder samples the player's pose (position,
-// yaw, pitch) at a fixed rate WHILE THEY ARE ACTIVELY PLAYING; pauses simply
-// aren't sampled, so they drop out of the replay for free. On playback the same
-// samples are streamed back into the camera through the same seed's maze.
+// The world is SEED-DETERMINISTIC, so the maze rebuilds itself from the seed. The
+// things that are NOT deterministic — the camera, the inhabitants, and when you
+// pinged — are recorded here so the replay shows the run as it actually happened:
 //
-// encode()/decode() pack the samples small enough to sit in a text column: start
-// position as absolute centimetres, then Int16 deltas for position and quantised
-// yaw/pitch, base64'd. A couple of minutes of play is a few kilobytes.
+//   * CAMERA  — the player's pose, sampled at a fixed rate WHILE ACTIVELY PLAYING
+//               (pauses aren't sampled, so they drop out for free).
+//   * ENTITIES — a snapshot of every nearby inhabitant's position + facing at each
+//               sample, stored RELATIVE to the camera (so it fits in Int16 cm).
+//   * PINGS   — the sample index of each sonar ping, so the reveal lights the maze
+//               at the same moments it did for the player.
+//
+// encode()/decode() pack it small: start position as absolute cm then Int16
+// deltas, quantised yaw/pitch, per-sample entity counts + relative poses, and ping
+// indices — all base64'd.
+
+import { installReveal } from "./reveal.js";
 
 export const REPLAY_RATE = 8;                 // samples per second
 const MAX_SAMPLES = REPLAY_RATE * 60 * 12;    // cap: 12 minutes
 export const EYE_HEIGHT = 1.7;                 // matches player.js
+const MAX_GHOSTS = 24;                          // most inhabitants recorded per frame
+const REC_ENTITY_DIST = 45;                     // only record inhabitants within this
 
 // --- Recorder ---------------------------------------------------------------
 export class ReplayRecorder {
@@ -23,28 +32,48 @@ export class ReplayRecorder {
   }
   reset() {
     this.samples = [];
+    this.entityFrames = [];
+    this.pings = [];
     this._acc = 0;
     this.full = false;
   }
   // Call every frame that the player is ACTIVELY playing (not paused, not dead).
-  sample(dt, pos, yaw, pitch) {
+  // `entities` is the live inhabitant list (each { x, z, group.rotation.y }).
+  sample(dt, pos, yaw, pitch, entities) {
     if (this.full) return;
     this._acc += dt;
     const step = 1 / REPLAY_RATE;
-    // Guard against a huge dt dumping hundreds of samples at once.
-    let guard = 4;
+    let guard = 4; // a huge dt must not dump hundreds of samples at once
     while (this._acc >= step && guard-- > 0) {
       this._acc -= step;
       this.samples.push({ x: pos.x, z: pos.z, yaw, pitch });
+      this.entityFrames.push(snapshotEntities(entities, pos));
       if (this.samples.length >= MAX_SAMPLES) {
         this.full = true;
         break;
       }
     }
   }
-  encoded() {
-    return encodeReplay(this.samples);
+  // A sonar ping fired — remember when, so the replay lights up at the same moment.
+  markPing() {
+    if (!this.full) this.pings.push(this.samples.length);
   }
+  encoded() {
+    return encodeReplay(this.samples, this.entityFrames, this.pings);
+  }
+}
+
+function snapshotEntities(entities, pos) {
+  const out = [];
+  if (!entities) return out;
+  for (const e of entities) {
+    const rx = e.x - pos.x;
+    const rz = e.z - pos.z;
+    if (rx * rx + rz * rz > REC_ENTITY_DIST * REC_ENTITY_DIST) continue;
+    out.push({ rx, rz, yaw: e.group ? e.group.rotation.y : 0 });
+    if (out.length >= MAX_GHOSTS) break;
+  }
+  return out;
 }
 
 // --- Codec ------------------------------------------------------------------
@@ -73,9 +102,11 @@ function bufferFromB64(str) {
   return bytes;
 }
 
-export function encodeReplay(samples) {
+export function encodeReplay(samples, entityFrames = [], pings = []) {
   const n = samples.length;
   if (n < 2) return "";
+
+  // Camera.
   const x0 = Math.round(samples[0].x * 100);
   const z0 = Math.round(samples[0].z * 100);
   const dx = new Int16Array(n - 1);
@@ -96,8 +127,36 @@ export function encodeReplay(samples) {
     yaw[k] = clampI16(Math.round(wrapPi(samples[k].yaw) * 10000));
     pitch[k] = clampI16(Math.round(samples[k].pitch * 10000));
   }
+
+  // Entities: a count per sample, then a flat run of [relX, relZ, yaw] Int16s.
+  const counts = new Uint8Array(n);
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    const c = Math.min(MAX_GHOSTS, (entityFrames[i] || []).length);
+    counts[i] = c;
+    total += c;
+  }
+  const ed = new Int16Array(total * 3);
+  let w = 0;
+  for (let i = 0; i < n; i++) {
+    const fr = entityFrames[i] || [];
+    const c = counts[i];
+    for (let k = 0; k < c; k++) {
+      const e = fr[k];
+      ed[w++] = clampI16(Math.round(e.rx * 100));
+      ed[w++] = clampI16(Math.round(e.rz * 100));
+      ed[w++] = clampI16(Math.round(wrapPi(e.yaw) * 10000));
+    }
+  }
+
+  // Pings: sample indices, clamped in range.
+  const pg = new Uint16Array(pings.length);
+  for (let i = 0; i < pings.length; i++) {
+    pg[i] = Math.min(n - 1, Math.max(0, pings[i] | 0));
+  }
+
   return JSON.stringify({
-    v: 1,
+    v: 2,
     r: REPLAY_RATE,
     n,
     x0,
@@ -106,6 +165,9 @@ export function encodeReplay(samples) {
     dz: b64FromBuffer(dz.buffer),
     y: b64FromBuffer(yaw.buffer),
     p: b64FromBuffer(pitch.buffer),
+    ec: b64FromBuffer(counts.buffer),
+    ed: b64FromBuffer(ed.buffer),
+    pg: b64FromBuffer(pg.buffer),
   });
 }
 
@@ -117,8 +179,10 @@ export function decodeReplay(str) {
   } catch {
     return null;
   }
-  if (!o || o.v !== 1 || !o.n) return null;
+  if (!o || !o.n || o.n < 2) return null;
   const n = o.n;
+
+  // Camera.
   const dx = new Int16Array(bufferFromB64(o.dx).buffer);
   const dz = new Int16Array(bufferFromB64(o.dz).buffer);
   const yaw = new Int16Array(bufferFromB64(o.y).buffer);
@@ -131,40 +195,108 @@ export function decodeReplay(str) {
       cx += dx[k - 1];
       cz += dz[k - 1];
     }
-    samples[k] = {
-      x: cx / 100,
-      z: cz / 100,
-      yaw: yaw[k] / 10000,
-      pitch: pitch[k] / 10000,
-    };
+    samples[k] = { x: cx / 100, z: cz / 100, yaw: yaw[k] / 10000, pitch: pitch[k] / 10000 };
   }
-  return { rate: o.r || REPLAY_RATE, samples };
+
+  // Entities (v2). Positions were stored relative to the camera sample.
+  const entityFrames = new Array(n);
+  if (o.ec && o.ed) {
+    const counts = bufferFromB64(o.ec);
+    const ed = new Int16Array(bufferFromB64(o.ed).buffer);
+    let r = 0;
+    for (let i = 0; i < n; i++) {
+      const c = counts[i] || 0;
+      const arr = new Array(c);
+      for (let k = 0; k < c; k++) {
+        const rx = ed[r++] / 100;
+        const rz = ed[r++] / 100;
+        const gyaw = ed[r++] / 10000;
+        arr[k] = { x: samples[i].x + rx, z: samples[i].z + rz, yaw: gyaw };
+      }
+      entityFrames[i] = arr;
+    }
+  } else {
+    for (let i = 0; i < n; i++) entityFrames[i] = [];
+  }
+
+  // Pings.
+  let pings = [];
+  if (o.pg) pings = Array.from(new Uint16Array(bufferFromB64(o.pg).buffer));
+
+  return { rate: o.r || REPLAY_RATE, samples, entityFrames, pings };
 }
 
 // --- Playback ---------------------------------------------------------------
-// Streams a decoded replay back into the shared camera. game.js hands it the frame
-// while a spectate is active (like the death cutscene).
+// Streams a decoded replay back into the shared camera, and drives a pool of ghost
+// inhabitants (same look as the real ones) along their recorded snapshots. Pings
+// are surfaced via poll() so game.js can fire the actual reveal.
 export class ReplayPlayback {
-  constructor(camera) {
+  constructor(scene, camera) {
+    this.scene = scene;
     this.camera = camera;
     this.active = false;
+
+    // A fixed pool of ghost inhabitants, matching the maze look: dark body, red
+    // eyes (MeshBasicMaterial, always visible even before a ping).
+    // Body catches the sonar reveal like the real inhabitants (Phong + reveal);
+    // the eyes are always-on red. Matches how they looked in the run.
+    this.bodyMat = new THREE.MeshPhongMaterial({ color: 0x0a0a0a, shininess: 0 });
+    installReveal(this.bodyMat);
+    this.eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2a2a });
+    const bodyGeo = new THREE.CylinderGeometry(0.22, 0.32, 1.5, 8);
+    const headGeo = new THREE.SphereGeometry(0.26, 10, 8);
+    const eyeGeo = new THREE.SphereGeometry(0.05, 6, 6);
+    this.ghosts = [];
+    for (let i = 0; i < MAX_GHOSTS; i++) {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(bodyGeo, this.bodyMat);
+      body.position.y = 0.75;
+      const head = new THREE.Mesh(headGeo, this.bodyMat);
+      head.position.y = 1.6;
+      const eyeL = new THREE.Mesh(eyeGeo, this.eyeMat);
+      eyeL.position.set(-0.09, 1.62, 0.2);
+      const eyeR = eyeL.clone();
+      eyeR.position.x = 0.09;
+      g.add(body, head, eyeL, eyeR);
+      g.visible = false;
+      scene.add(g);
+      this.ghosts.push(g);
+    }
   }
+
   load(decoded) {
     this.samples = decoded.samples;
+    this.entityFrames = decoded.entityFrames || [];
+    this.pings = decoded.pings || [];
     this.rate = decoded.rate;
     this.t = 0;
     this.done = false;
     this.active = true;
+    this._pingCursor = 0;
   }
-  // 0..1 through the run.
+
   progress() {
     if (!this.samples || this.samples.length < 2) return 1;
     return clamp01((this.t * this.rate) / (this.samples.length - 1));
   }
-  // Where the camera is right now, so the maze can stream around it.
+
   get pos() {
     return this._pos || { x: this.samples[0].x, y: EYE_HEIGHT, z: this.samples[0].z };
   }
+
+  // Ping events whose time has arrived since the last frame — game.js fires the
+  // reveal at each (from the current camera position, where the player pinged).
+  poll() {
+    const due = [];
+    if (!this.pings) return due;
+    const idxNow = Math.floor(this.t * this.rate);
+    while (this._pingCursor < this.pings.length && this.pings[this._pingCursor] <= idxNow) {
+      due.push({ x: this.pos.x, z: this.pos.z });
+      this._pingCursor++;
+    }
+    return due;
+  }
+
   update(dt) {
     if (!this.active || !this.samples || this.samples.length < 2) {
       this.done = true;
@@ -180,6 +312,8 @@ export class ReplayPlayback {
       u = 0;
       this.done = true;
     }
+
+    // Camera.
     const a = this.samples[i];
     const b = u > 0 ? this.samples[i + 1] : a;
     const x = a.x + (b.x - a.x) * u;
@@ -190,6 +324,40 @@ export class ReplayPlayback {
     this.camera.position.set(x, EYE_HEIGHT, z);
     _euler.set(pitch, yaw, 0, "YXZ");
     this.camera.quaternion.setFromEuler(_euler);
+
+    // Ghost inhabitants. Interpolate a slot only when its two frames are close
+    // (the same inhabitant moved); a big jump means the slot changed hands, so
+    // snap instead of gliding one ghost across the maze.
+    const fa = this.entityFrames[i] || [];
+    const fb = u > 0 ? this.entityFrames[i + 1] || fa : fa;
+    for (let k = 0; k < this.ghosts.length; k++) {
+      const gh = this.ghosts[k];
+      if (k >= fa.length) {
+        gh.visible = false;
+        continue;
+      }
+      const ea = fa[k];
+      let gx = ea.x;
+      let gz = ea.z;
+      let gyaw = ea.yaw;
+      if (u > 0 && k < fb.length) {
+        const eb = fb[k];
+        if (Math.hypot(eb.x - ea.x, eb.z - ea.z) < 2) {
+          gx = ea.x + (eb.x - ea.x) * u;
+          gz = ea.z + (eb.z - ea.z) * u;
+          gyaw = ea.yaw + wrapPi(eb.yaw - ea.yaw) * u;
+        }
+      }
+      gh.position.set(gx, 0, gz);
+      gh.rotation.y = gyaw;
+      gh.visible = true;
+    }
+  }
+
+  // Hide the ghosts when the replay ends or the viewer exits.
+  dispose() {
+    this.active = false;
+    for (const g of this.ghosts) g.visible = false;
   }
 }
 

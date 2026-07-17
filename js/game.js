@@ -21,7 +21,7 @@ import { CHANGELOG } from "./changelog.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.86.0";
+const VERSION = "v2.86.1";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");

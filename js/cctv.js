@@ -18,13 +18,13 @@
 import { CELL, WALL_H } from "./world.js";
 import { installReveal } from "./reveal.js";
 
-const MAX_CAMS = 1;          // one at a time — a rarity, not wallpaper
-const FIRST_DELAY = 20;      // seconds before the first can appear
-const SPAWN_INTERVAL = 24;   // between attempts once none is up
-const SPAWN_CHANCE = 0.45;   // chance an attempt actually places one
+const MAX_CAMS = 4;          // how many can be watching at once
+const FIRST_DELAY = 6;       // seconds before the first can appear
+const SPAWN_INTERVAL = 9;    // between attempts while under the cap
+const SPAWN_CHANCE = 0.8;    // chance an attempt actually places one
 const MIN_DIST = 5;          // metres from you it can appear
-const MAX_DIST = 12;
-const DESPAWN_DIST = 20;     // drop it once you've walked this far off
+const MAX_DIST = 14;
+const DESPAWN_DIST = 24;     // drop it once you've walked this far off
 const HEAD_Y = WALL_H - 0.52; // where the swivel head hangs, just under the ceiling
 
 export class SecurityCameras {

@@ -12,6 +12,7 @@ const MOVE_SPEED = 5.1;        // units/second — brisk walk (1.5x the old pace
 export const RUN_SPEED = 7.6;  // while running mode is on and energy remains
 const PLAYER_RADIUS = 0.35;    // collision radius on the XZ plane
 const PITCH_LIMIT = Math.PI / 2 - 0.05;
+const KEY_TURN_SPEED = 2.4;    // radians/sec — how fast the arrow keys pan the view
 
 // Head bob: strides per second, and how far the camera moves. Y bobs twice per
 // stride, X sways once per stride. Kept small to avoid motion sickness.
@@ -114,9 +115,21 @@ export class Player {
 
   update(dt, world) {
     this.moving = false;
+    this._turn(dt);
     if (this.enabled) this._move(dt, world);
     this._updateBob(dt);
     this._apply();
+  }
+
+  // Arrow keys pan the camera (PC only). Left/right TURN the view — A/D still
+  // strafe. Gated exactly like the mouse: only while pointer-locked and not bolted
+  // to a terminal, so it never fires on the menu or a pause screen.
+  _turn(dt) {
+    if (this.lookLocked || !this.isLocked) return;
+    let turn = 0;
+    if (this.keys.has("ArrowRight")) turn += 1;
+    if (this.keys.has("ArrowLeft")) turn -= 1;
+    if (turn) this.yaw -= turn * KEY_TURN_SPEED * dt; // right decreases yaw, like dx>0
   }
 
   // Advance the stride phase and ease the bob in/out so it's zero when standing
@@ -200,8 +213,8 @@ export class Player {
     let strafe = this.touchStrafe;
     if (this.keys.has("KeyW") || this.keys.has("ArrowUp")) fwd += 1;
     if (this.keys.has("KeyS") || this.keys.has("ArrowDown")) fwd -= 1;
-    if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) strafe += 1;
-    if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) strafe -= 1;
+    if (this.keys.has("KeyD")) strafe += 1; // arrows no longer strafe — they turn
+    if (this.keys.has("KeyA")) strafe -= 1;
 
     // Magnitude gives the joystick analog speed; keys naturally reach 1.
     const mag = Math.min(1, Math.hypot(fwd, strafe));

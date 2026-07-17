@@ -148,14 +148,18 @@ export function setWorldSeed(seed) {
 // grimy wallpaper is preserved intact below as makeWallTextureDetailed(); flip
 // FLAT_WALLS back to false to restore it exactly as it was.
 const FLAT_WALLS = true;
-const FLAT_WALL_COLOR = "#f2eccb"; // pale white-yellow
+const FLAT_WALL_COLOR = "#f2eccb";            // pale white-yellow
+const FLAT_EDGE_COLOR = "rgba(64, 54, 12, 0.6)"; // dark corner/edge shading
 
 function makeWallTexture(grime, kind) {
   return FLAT_WALLS ? makeFlatWallTexture(kind) : makeWallTextureDetailed(grime, kind);
 }
 
-// Plain white-yellow, flat edge to edge. The blood variant keeps its scrawl, now
-// on a clean wall.
+// Plain white-yellow, but with a darker band shading every edge of the panel —
+// strongest at the very corner and fading inward. With repeat (1,1) each wall
+// segment is ONE panel, so those bands land on the real corners (where two walls
+// meet) and on the floor and ceiling lines — the only cues you get for navigation
+// once everything else goes flat. The blood variant keeps its scrawl.
 function makeFlatWallTexture(kind) {
   const c = document.createElement("canvas");
   c.width = c.height = 256;
@@ -164,11 +168,24 @@ function makeFlatWallTexture(kind) {
   g.fillStyle = FLAT_WALL_COLOR;
   g.fillRect(0, 0, 256, 256);
 
+  const E = 30; // edge band width, px
+  const band = (x0, y0, x1, y1, x, y, w, h) => {
+    const grd = g.createLinearGradient(x0, y0, x1, y1);
+    grd.addColorStop(0, FLAT_EDGE_COLOR);
+    grd.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = grd;
+    g.fillRect(x, y, w, h);
+  };
+  band(0, 0, E, 0, 0, 0, E, 256);             // left
+  band(256, 0, 256 - E, 0, 256 - E, 0, E, 256); // right
+  band(0, 0, 0, E, 0, 0, 256, E);             // top (ceiling line)
+  band(0, 256, 0, 256 - E, 0, 256 - E, 256, E); // bottom (floor line)
+
   if (kind === "blood") drawBloodScrawl(g);
 
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(2, 1);
+  t.repeat.set(1, 1); // one panel per wall segment, so edges sit on real corners
   return t;
 }
 
@@ -328,6 +345,26 @@ function makeTreadTexture() {
 }
 
 function makeFloorTexture() {
+  return FLAT_WALLS ? makeFlatSurfaceTexture(CHUNK_CELLS) : makeFloorTextureDetailed();
+}
+
+// A completely plain white-yellow surface (floor or ceiling). `rep` is how many
+// times it tiles per chunk — irrelevant to a flat colour, kept only so the reveal
+// pipeline is unchanged.
+function makeFlatSurfaceTexture(rep) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d");
+  g.fillStyle = FLAT_WALL_COLOR;
+  g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(rep, rep);
+  return t;
+}
+
+// PRESERVED — the original grimy yellow floor. Reached via FLAT_WALLS=false.
+function makeFloorTextureDetailed() {
   const c = document.createElement("canvas");
   c.width = c.height = 128;
   const g = c.getContext("2d");
@@ -871,7 +908,11 @@ export class World {
     // stays a shock rather than plastering every surface.
     this.bloodMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 0, map: makeWallTexture(0.5, "blood") });
     this.floorMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 0, map: makeFloorTexture() });
-    this.ceilMat = new THREE.MeshPhongMaterial({ color: COL_CEIL, shininess: 0 });
+    // Ceiling is a plain flat colour (no map). White-yellow in flat mode.
+    this.ceilMat = new THREE.MeshPhongMaterial({
+      color: FLAT_WALLS ? FLAT_WALL_COLOR : COL_CEIL,
+      shininess: 0,
+    });
 
     // --- Safe-room surfaces -------------------------------------------------
     // Concrete and steel, and not a trace of yellow.

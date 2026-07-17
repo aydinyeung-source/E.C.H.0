@@ -20,7 +20,7 @@ import { DeathCutscene } from "./cutscene.js";
 import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount } from "./supabase.js";
 
-const VERSION = "v2.81.0";
+const VERSION = "v2.82.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");

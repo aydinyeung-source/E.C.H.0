@@ -22,7 +22,7 @@ import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount, fetchReplay } from "./supabase.js";
 import { ReplayRecorder, ReplayPlayback, decodeReplay, EYE_HEIGHT } from "./replay.js";
 
-const VERSION = "v2.90.0";
+const VERSION = "v2.90.1";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -837,7 +837,7 @@ function startRun(rawSeedText, label, isDaily) {
   else enterPlay();
 }
 
-// --- Fake loading screen ----------------------------------------------------
+// --- Loading screen ---------------------------------------------------------
 // Pure flavour: the maze is already built. Before a FRESH run begins we sit on a
 // loading screen for a random 2–15s with a rotating quick tip. On PC the pointer
 // is already locked (from the click that started the run), so play can begin the
@@ -878,13 +878,13 @@ let loadingBarTimer = null;
 function enterPlay() {
   if (pendingRunLoad) {
     pendingRunLoad = false;
-    showFakeLoading(beginPlay);
+    showLoading(beginPlay);
   } else {
     beginPlay();
   }
 }
 
-function showFakeLoading(done) {
+function showLoading(done) {
   loadingActive = true;
   startOverlay.classList.add("hidden"); // no menu drift behind the screen
   const duration = 2000 + Math.random() * 13000; // 2–15s

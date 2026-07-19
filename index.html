@@ -454,6 +454,17 @@
     </div>
     <div id="cutsceneVeil" class="cutscene-veil hidden" aria-hidden="true"></div>
 
+    <!-- Fake loading screen: plays for a random 2–15s before a run, with a rotating
+         quick tip. Purely for flavour — the maze is already built behind it. -->
+    <div id="loadingOverlay" class="loading hidden" aria-hidden="true">
+      <div class="loading-inner">
+        <div class="loading-title">E.C.H.0</div>
+        <div class="loading-status">ESTABLISHING SIGNAL…</div>
+        <div class="loading-barwrap"><div class="loading-bar" id="loadingBar"></div></div>
+        <p class="loading-tip"><span class="loading-tip-k">TIP</span> <span id="loadingTip"></span></p>
+      </div>
+    </div>
+
     <!-- Jumpscare, shown for a beat the instant an entity catches you. -->
     <div id="jumpscare" class="hidden" aria-hidden="true">
       <div class="js-face">

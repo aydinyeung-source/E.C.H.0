@@ -22,7 +22,7 @@ import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount, fetchReplay } from "./supabase.js";
 import { ReplayRecorder, ReplayPlayback, decodeReplay, EYE_HEIGHT } from "./replay.js";
 
-const VERSION = "v2.89.0";
+const VERSION = "v2.90.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -781,6 +781,7 @@ function startRun(rawSeedText, label, isDaily) {
   run.playtest = Menu.isPlaytester && Menu.playtest;
   run.deaths = 0;
   recorder.reset(); // start a fresh recording for this run
+  pendingRunLoad = true; // a fresh run always sits through the loading screen first
   deathCooldown = 0;
   renderDeathTag();
   playtestTag.classList.toggle("hidden", !run.playtest);
@@ -831,8 +832,105 @@ function startRun(rawSeedText, label, isDaily) {
   seedTag.textContent = (label ? label + " · " : "") + "SEED " + run.seed;
 
   // PC goes through pointer lock (which starts play on lock); mobile starts now.
+  // Either way, enterPlay() detours a fresh run through the loading screen first.
   if (deviceMode === "pc") lockPointer();
-  else beginPlay();
+  else enterPlay();
+}
+
+// --- Fake loading screen ----------------------------------------------------
+// Pure flavour: the maze is already built. Before a FRESH run begins we sit on a
+// loading screen for a random 2–15s with a rotating quick tip. On PC the pointer
+// is already locked (from the click that started the run), so play can begin the
+// instant the timer runs out with no second gesture needed.
+const loadingOverlay = document.getElementById("loadingOverlay");
+const loadingBar = document.getElementById("loadingBar");
+const loadingTip = document.getElementById("loadingTip");
+const LOADING_TIPS = [
+  "Entities can't jump!",
+  "A ping is heard by everything nearby — and drags it to the spot.",
+  "Look away — watching a distant one is how it gets you.",
+  "You can outrun anything in a straight sprint. You can't outlast it in one.",
+  "Stand dead still to get your breath back fastest.",
+  "The radar only refreshes when you ping.",
+  "Dive through a broken window; they can't fit.",
+  "A crucifix wipes their memory of you completely.",
+  "Shine a torch in one's face and you'll regret it.",
+  "A safe room is a trap as much as a shelter.",
+  "Beat the terminal's clock, or the door caves in.",
+  "The vent is a way OUT, not a place to hide.",
+  "Meat gives energy back, and it stacks deep.",
+  "Two crucifix halves make a whole — stand still to fit them.",
+  "Score is how much maze you uncover, not how far you run.",
+  "Ping from behind a corner. Never in the open.",
+  "Their eyes glow faint red in the dark. Sometimes that's your only warning.",
+  "Same seed, same maze — for everyone, everywhere.",
+  "One that catches you dies doing it. Small comfort.",
+  "Headphones on: you can hear exactly where they are.",
+];
+let pendingRunLoad = false; // a fresh run is waiting on the loading screen
+let loadingActive = false;
+let loadingDoneTimer = null;
+let loadingTipTimer = null;
+let loadingBarTimer = null;
+
+// Called wherever play would begin. A fresh run detours through the loading
+// screen first; a resume goes straight in.
+function enterPlay() {
+  if (pendingRunLoad) {
+    pendingRunLoad = false;
+    showFakeLoading(beginPlay);
+  } else {
+    beginPlay();
+  }
+}
+
+function showFakeLoading(done) {
+  loadingActive = true;
+  startOverlay.classList.add("hidden"); // no menu drift behind the screen
+  const duration = 2000 + Math.random() * 13000; // 2–15s
+  const start = performance.now();
+
+  let tipIdx = Math.floor(Math.random() * LOADING_TIPS.length);
+  loadingTip.textContent = LOADING_TIPS[tipIdx];
+  loadingBar.style.width = "0%";
+  loadingOverlay.classList.remove("hidden");
+
+  clearInterval(loadingTipTimer);
+  loadingTipTimer = setInterval(() => {
+    tipIdx = (tipIdx + 1) % LOADING_TIPS.length;
+    loadingTip.textContent = LOADING_TIPS[tipIdx];
+  }, 3600);
+
+  clearInterval(loadingBarTimer);
+  loadingBarTimer = setInterval(() => {
+    const p = Math.min(1, (performance.now() - start) / duration);
+    loadingBar.style.width = (p * 100).toFixed(1) + "%";
+  }, 50);
+
+  clearTimeout(loadingDoneTimer);
+  loadingDoneTimer = setTimeout(() => {
+    _clearLoadingTimers();
+    loadingActive = false;
+    loadingBar.style.width = "100%";
+    loadingOverlay.classList.add("hidden");
+    if (done) done();
+  }, duration);
+}
+
+function _clearLoadingTimers() {
+  clearTimeout(loadingDoneTimer);
+  clearInterval(loadingTipTimer);
+  clearInterval(loadingBarTimer);
+}
+
+// If the loading screen is interrupted (PC: pointer unlocked with Esc), bail back
+// to the menu instead of starting a run the player can no longer control.
+function cancelLoading() {
+  _clearLoadingTimers();
+  loadingActive = false;
+  loadingOverlay.classList.add("hidden");
+  startOverlay.classList.remove("hidden");
+  restageMenu();
 }
 
 // Enter (or resume) active play. On PC this runs from the pointerlockchange
@@ -956,7 +1054,9 @@ sensSlider.addEventListener("input", () => {
 document.addEventListener("pointerlockchange", () => {
   if (deviceMode !== "pc") return;
   if (document.pointerLockElement === canvas) {
-    beginPlay();
+    enterPlay(); // fresh run -> loading screen; resume -> straight in
+  } else if (loadingActive) {
+    cancelLoading(); // Esc during the loading screen: back out to the menu
   } else if (dead) {
     showGameOver();
   } else if (playing) {

@@ -2089,3 +2089,77 @@ select:focus {
   background: rgba(216, 200, 64, 0.14);
   border-color: rgba(216, 200, 64, 0.5);
 }
+
+/* ---------------------------------------------------------------------------
+   FAKE LOADING SCREEN — a random 2–15s wait before a run, with a rotating tip.
+   Flat, no glow; the warm dirty dark of the rest of the interface.
+   --------------------------------------------------------------------------- */
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(16, 14, 6, 0.94), rgba(0, 0, 0, 0.98));
+}
+
+.loading-inner {
+  width: min(460px, 88vw);
+  text-align: center;
+}
+
+.loading-title {
+  font-size: 2.4rem;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  color: var(--lamp);
+}
+
+.loading-status {
+  margin-top: 10px;
+  font-family: "Courier New", monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.24em;
+  color: var(--ink-soft);
+  animation: loadBlink 1.4s steps(1) infinite;
+}
+
+@keyframes loadBlink {
+  50% { opacity: 0.4; }
+}
+
+.loading-barwrap {
+  margin: 22px auto 0;
+  height: 6px;
+  border: 1px solid rgba(216, 200, 64, 0.28);
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.loading-bar {
+  width: 0%;
+  height: 100%;
+  background: var(--lamp);
+  transition: width 0.12s linear;
+}
+
+.loading-tip {
+  margin: 26px auto 0;
+  max-width: 380px;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: rgba(232, 227, 207, 0.86);
+}
+
+.loading-tip-k {
+  font-family: "Courier New", monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  color: var(--lamp);
+  border: 1px solid rgba(216, 200, 64, 0.4);
+  border-radius: 2px;
+  padding: 1px 6px;
+  margin-right: 8px;
+}

@@ -13,3 +13,8 @@ Thumbs.db
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example

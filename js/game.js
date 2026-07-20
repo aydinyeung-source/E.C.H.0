@@ -22,7 +22,7 @@ import { Menu } from "./menu.js";
 import { submitDistance, flushPendingScores, pendingSyncCount, fetchReplay } from "./supabase.js";
 import { ReplayRecorder, ReplayPlayback, decodeReplay, EYE_HEIGHT } from "./replay.js";
 
-const VERSION = "v2.90.1";
+const VERSION = "v2.91.0";
 
 const canvas = document.getElementById("scene");
 const startOverlay = document.getElementById("startOverlay");
@@ -1163,8 +1163,9 @@ function exitSpectate() {
   spectateOverlay.classList.add("hidden");
   document.querySelector(".crosshair")?.classList.remove("hidden");
   player.enabled = true;
-  startOverlay.classList.remove("hidden");
   restageMenu();
+  // Back to the home screen — through the loading screen, like every other arrival.
+  showLoading(() => startOverlay.classList.remove("hidden"));
 }
 document.getElementById("spectateExit").addEventListener("click", exitSpectate);
 Menu.onSpectate = (row) => spectateRun(row);
@@ -1854,3 +1855,8 @@ buildDangerBars();
 Menu.init().then(syncOfflineScores); // wait for the session before replaying
 Menu.refreshLeaderboard(todayUTC());
 requestAnimationFrame(loop);
+
+// The home screen arrives through the loading screen too — on first load, and on
+// every between-games reload (which is just a fresh load). showLoading() hides the
+// home overlay while it runs, then this reveals it.
+showLoading(() => startOverlay.classList.remove("hidden"));

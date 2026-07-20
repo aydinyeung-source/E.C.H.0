@@ -6,6 +6,7 @@
 // When you ship a release, add a line at the TOP.
 
 export const CHANGELOG = [
+  { v: "2.91.0", note: "The loading screen now also plays on startup, arriving into the home screen." },
   { v: "2.90.0", note: "A loading screen before each run — a random wait with a rotating quick tip. (Entities can't jump!)" },
   { v: "2.89.0", note: "Spectated runs now show the other inhabitants moving and the player's own sonar pings, not just their path." },
   { v: "2.88.0", note: "Spectate leaderboard runs: click a daily entry to watch that run play back through its maze. Pauses are skipped." },
